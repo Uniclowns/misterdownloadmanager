@@ -586,6 +586,9 @@ These ship in the next version.
 - ✅ AI assistants (MCP) can provide a custom User-Agent header when adding downloads, enabling
   downloads from sites and CDNs that require specific browser signatures (thanks to
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can provide a Cookie header when adding downloads, enabling
+  downloads that require session authentication (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ The automation API's add may carry the checksum the finished file must have (the command
   line's `--checksum` form), kept with the download for **Verify checksum** and the finish
   check; one the app can't read is refused (`bad-request`) instead of dropped
@@ -594,6 +597,9 @@ These ship in the next version.
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ The command line's add accepts `--user-agent` (or `--ua`) to send a custom User-Agent header
   with the download request (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line's add accepts `--cookie` (or `--cookies`) to send a Cookie header with the
+  download request; `-` reads it from standard input instead of the command line (thanks to
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ The tests run in English whatever Windows' display language is: a Chinese, German or
   Arabic Windows ran 27 of `mdm-app`'s tests red on code CI's English runner passed, as the
@@ -1432,11 +1438,21 @@ These ship in the next version.
   [@RedemptionMHA](https://github.com/RedemptionMHA))
 - ✅ Linux: the notification area's icon has its name (KDE showed none)
   ([#1305](https://github.com/anefzaoui/misterdownloadmanager/issues/1305))
+- ✅ Windows: Open folder finds a file manager that names its own default verb for folders
+  (One Commander) (thanks to [@haohaaaa](https://github.com/haohaaaa))
+  ([#1335](https://github.com/anefzaoui/misterdownloadmanager/issues/1335))
 - ✅ About's links include **Contributors**, which opens the website's page that thanks everyone who
   sent a pull request, opened an issue or joined a conversation (built from GitHub at every build,
   so it never goes stale): the smaller form of
   [#1253](https://github.com/anefzaoui/misterdownloadmanager/pull/1253), whose author
   [@9M2PJU](https://github.com/9M2PJU) handed it over
+- ✅ Windows: a dialog that opens while you are in another program (the duplicate download
+  question the browser asks, Download File Info) no longer brings the main window up behind it;
+  it has its own taskbar button
+- ✅ The same video picked from the quality menu in a second tab of its page is a duplicate, even
+  when its stream's address is signed for each load (it was downloaded again without a word)
+- ✅ Telegram Web's downloads stay with the browser, which makes them in the page
+  ([#1345](https://github.com/anefzaoui/misterdownloadmanager/issues/1345))
 
 ## Being worked on
 
