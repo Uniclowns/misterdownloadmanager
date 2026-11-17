@@ -1092,6 +1092,27 @@ fn js_runtime_args(exe: &Path) -> Vec<String> {
     js_runtime_found(exe).unwrap_or_default()
 }
 
+/// Options → Sites Logins → Use my yt-dlp config file: off, the default.
+static USER_CONFIG: AtomicBool = AtomicBool::new(false);
+
+/// Let every later yt-dlp run read the person's own config file (or not, the default).
+pub fn set_user_config(on: bool) {
+    USER_CONFIG.store(on, Ordering::Relaxed);
+}
+
+/// yt-dlp's arguments for the person's own config file: none read (`--ignore-config`), or read,
+/// with MDM's arguments after it still winning. Then yt-dlp's own downloader for HTTP, FTP and
+/// DASH: an external one the config may name (aria2c) prints no progress lines for the list.
+/// shortcut: m3u8 left out (native breaks the live HLS yt-dlp gives ffmpeg), so HLS through an
+/// external downloader shows no progress; add it if that matters.
+fn config_args(on: bool) -> &'static [&'static str] {
+    if on {
+        &["--downloader", "http,ftp,dash:native"]
+    } else {
+        &["--ignore-config"]
+    }
+}
+
 /// `yt-dlp` with arguments in layers: `user` extras, then `ours` (then the chosen browser's
 /// cookies when neither brought any, [`layers`]), then the fixed ones last (so nothing can
 /// switch them off), then `--` and the URL (so a URL starting with `-` is never read as an
@@ -1105,7 +1126,8 @@ pub fn ytdlp(
     let mut cmd = helper_command(exe);
     let route = through_adapter(&mut cmd, Helper::YtDlp, Some(url))?;
     layers(&mut cmd, user, ours)?;
-    cmd.args(["--ignore-config", "--no-exec", "--no-update"]);
+    cmd.args(config_args(USER_CONFIG.load(Ordering::Relaxed)));
+    cmd.args(["--no-exec", "--no-update"]);
     cmd.args(js_runtime_args(exe));
     cmd.args(cert_args(SYSTEM_CERTS.load(Ordering::Relaxed)));
     cmd.args(UTF8);
@@ -1126,7 +1148,8 @@ pub fn ytdlp_info(
     let mut cmd = helper_command(exe);
     let route = through_adapter(&mut cmd, Helper::YtDlp, None)?;
     layers(&mut cmd, user, ours)?;
-    cmd.args(["--ignore-config", "--no-exec", "--no-update"]);
+    cmd.args(config_args(USER_CONFIG.load(Ordering::Relaxed)));
+    cmd.args(["--no-exec", "--no-update"]);
     cmd.args(js_runtime_args(exe));
     cmd.args(cert_args(SYSTEM_CERTS.load(Ordering::Relaxed)));
     cmd.args(UTF8);
@@ -2259,6 +2282,12 @@ foreach ($d in $env:PATH.Split(';')) {
         let exe = Path::new("yt-dlp");
         assert!(ytdlp(exe, &[], &[], "https://x/\n--exec calc").is_err());
         assert!(ytdlp(exe, &["--format\0best".into()], &[], "https://x/").is_err());
+    }
+
+    #[test]
+    fn the_persons_config_only_when_asked() {
+        assert_eq!(config_args(false), ["--ignore-config"]);
+        assert_eq!(config_args(true), ["--downloader", "http,ftp,dash:native"]);
     }
 
     #[test]
