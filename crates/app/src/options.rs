@@ -2381,6 +2381,18 @@ impl OptionsDialog {
         };
         // Two lines at most: a longer language wraps rather than being cut.
         winui::paragraph(&p, o.x + 30.0, o.y + 380.0, note, ink, o.x + 400.0, 13.0);
+        winui::checkbox_light(
+            ui,
+            o + vec2(22.0, 414.0),
+            &mut self.s.ytdlp_config,
+            // i18n: Options → Sites Logins: checkbox under Cookies for video sites: yt-dlp also reads the person's own yt-dlp config file
+            "Use my yt-dlp config file",
+            true,
+        )
+        .on_hover_text(crate::i18n::t(
+            // i18n: Options → Sites Logins → Use my yt-dlp config file: its tooltip
+            "yt-dlp also reads its own config file (yt-dlp.conf, or config.txt in its user folder). What MDM chooses, the folder and the quality, still wins.",
+        ));
     }
 
     /// Archives (ours, #37): extracting archives when their download completes, what becomes
