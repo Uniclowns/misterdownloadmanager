@@ -902,6 +902,11 @@ pub struct VideoSpec {
     /// title) is shortened instead.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub named: bool,
+    /// The video's length (whole seconds) as its look-up said: the same video picked again on
+    /// its page is known by it when its stream's address is signed in its path for each load
+    /// (`same_video`). None in a list saved before it, for a live stream or a length not said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u32>,
 }
 
 /// A running download and its speed measurement.
@@ -1280,7 +1285,9 @@ impl Item {
             | State::Merging
             | State::Completing => None,
             State::Done => Some(Status::Complete),
-            State::Cancelled => Some(Status::Stopped),
+            // Stopped, its last bytes and state still being written (#1328): stopped for the
+            // list now; a start at its place waits for them in the engine.
+            State::Stopping | State::Cancelled => Some(Status::Stopped),
             State::Failed => Some(Status::Error),
         };
         match ended {
@@ -1948,6 +1955,7 @@ mod file_address_tests {
             subs: Default::default(),
             parts: Vec::new(),
             named: false,
+            duration: None,
         });
         i
     }
@@ -2154,6 +2162,7 @@ mod tests {
             subs: Default::default(),
             parts: Vec::new(),
             named: false,
+            duration: None,
         });
         it
     }

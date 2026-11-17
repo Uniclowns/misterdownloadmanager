@@ -872,7 +872,14 @@ pub fn part_path(dest: &Path) -> PathBuf {
 /// `dir/name`, or `dir/stem (N).ext` with the lowest N that is free — IDM's default for a
 /// duplicate link is "add the duplicate with a numbered file name" (notes/ENGINE.md §6).
 pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let taken = |p: &Path| p.exists() || part_path(p).exists() || is_reserved(p);
+    // A resume state beside the name is data too: another row's unfinished download, or one a
+    // plain Delete kept. Starting there would resume that link instead of this one (#597).
+    let taken = |p: &Path| {
+        p.exists()
+            || part_path(p).exists()
+            || crate::state::state_path(p).exists()
+            || is_reserved(p)
+    };
     let first = dir.join(name);
     if !taken(&first) {
         return first;
@@ -1014,6 +1021,75 @@ pub fn wait_cleared(dir: &Path) {
     let (map, done) = clearings();
     let map = map.lock().unwrap();
     let _unused = done.wait_while(map, |m| m.contains_key(&key)).unwrap();
+}
+
+/// Places whose download was stopped and is still writing what its connections received and
+/// its resume state (#1328): how many runs settle at each.
+fn settlings() -> &'static (Mutex<std::collections::HashMap<PathBuf, usize>>, Condvar) {
+    static SETTLING: OnceLock<(Mutex<std::collections::HashMap<PathBuf, usize>>, Condvar)> =
+        OnceLock::new();
+    SETTLING.get_or_init(Default::default)
+}
+
+/// A stopped download still putting its last bytes and its resume state on the disk (#1328):
+/// its connections are closed and it says it is stopped at once, but a disk slower than the
+/// network takes as long as it takes. Until this guard is dropped (after the download has let go
+/// of its place and its part file), whatever comes next at that place waits ([`wait_settled`]):
+/// a resume reads the state saved last, a delete or a rewrite of the state comes after it.
+#[derive(Debug)]
+pub struct Settling(PathBuf);
+
+impl Drop for Settling {
+    fn drop(&mut self) {
+        let (map, done) = settlings();
+        let mut map = map.lock().unwrap();
+        if let Some(n) = map.get_mut(&self.0) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&self.0);
+            }
+        }
+        done.notify_all();
+    }
+}
+
+/// `dest`'s download has stopped and is settling: see [`Settling`].
+pub fn settling(dest: &Path) -> Settling {
+    *settlings()
+        .0
+        .lock()
+        .unwrap()
+        .entry(dest.to_owned())
+        .or_default() += 1;
+    Settling(dest.to_owned())
+}
+
+/// Whether a stopped download is still settling at `dest` ([`settling`]). Never waits.
+pub fn is_settling(dest: &Path) -> bool {
+    settlings().0.lock().unwrap().contains_key(dest)
+}
+
+/// Wait until no stopped download is settling at `dest`. On a thread that may wait: it takes as
+/// long as the disk.
+pub fn wait_settled(dest: &Path) {
+    let (map, done) = settlings();
+    let map = map.lock().unwrap();
+    let _unused = done.wait_while(map, |m| m.contains_key(dest)).unwrap();
+}
+
+/// Wait until every stopped download has settled, or `until`: how many still settle then (an
+/// exit waits for them, so each resumes from where it stopped).
+pub fn wait_all_settled(until: std::time::Instant) -> usize {
+    let (map, done) = settlings();
+    let mut map = map.lock().unwrap();
+    loop {
+        let left = map.values().sum();
+        let now = std::time::Instant::now();
+        if left == 0 || now >= until {
+            return left;
+        }
+        map = done.wait_timeout(map, until - now).unwrap().0;
+    }
 }
 
 #[cfg(test)]
@@ -1709,6 +1785,19 @@ mod tests {
         // A folder of that name.
         std::fs::create_dir(d.path().join("box")).unwrap();
         assert_eq!(replacing_path(d.path(), "box"), d.path().join("box (1)"));
+    }
+
+    /// #597: a resume state beside the name is data even with no file and no part left, so a
+    /// new download takes the next free name instead of resuming that state's own link.
+    #[test]
+    fn a_resume_state_makes_the_name_taken() {
+        let d = tempfile::tempdir().unwrap();
+        let state = crate::state::state_path(&d.path().join("song.mp3"));
+        std::fs::write(&state, b"{}").unwrap();
+        assert_eq!(
+            destination(d.path(), "song.mp3"),
+            d.path().join("song (1).mp3")
+        );
     }
 
     /// Windows with long paths off, as #1102's report: 259 UTF-16 units a path, 255 a name.

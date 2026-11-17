@@ -309,6 +309,8 @@ Everything below ships together, in version 0.5.0.
 - ✅ Link grabber: Click'n'Load from link sites, in their packages with their archive passwords;
   off by default, asked once per site, the links not looked up before they are added
   ([#37](https://github.com/anefzaoui/misterdownloadmanager/issues/37))
+- ✅ Archives: saved archive passwords, tried before the password is asked, the one that fits
+  first ([#37](https://github.com/anefzaoui/misterdownloadmanager/issues/37))
 - ✅ Image galleries with gallery-dl: Wikimedia Commons, Flickr, DeviantArt and many more,
   verified like yt-dlp, or your own copy ([#58](https://github.com/anefzaoui/misterdownloadmanager/issues/58))
 - ✅ Torrents: seeding limits (a share ratio, or a time), off by default, and a finished torrent's
@@ -565,6 +567,49 @@ These ship in the next version.
 - ✅ Your own yt-dlp config file: Options → Sites Logins → Use my yt-dlp config file (off by
   default) lets yt-dlp read it for the app's videos, most of MDM's own choices still winning; an
   external downloader it names doesn't stop the progress
+- ✅ Windows: dialogs open on the main window's monitor when the monitors have different display
+  scales (a 125 % laptop and a 100 % monitor), where they opened out of sight; a window on no
+  screen is brought onto one ([#1311](https://github.com/anefzaoui/misterdownloadmanager/issues/1311))
+- ✅ Tests: more of the ones that failed now and then on a busy runner are steady. A port that
+  stands for a server or a proxy that refuses is held for the whole test (one let go at once
+  could be taken before the request came, and the answer found there read as "can't reach the
+  server"); whether a program fell back is read once its run is over, not after a fixed wait; a
+  call that must never wait is offered a long wait it would show taking, not a short one any
+  busy machine takes; a linear-time check always runs its few rounds before it gives up; a DNS
+  that never answers is given a timeout with room to be asked; a stream's time budget times
+  its requests alone. Each was run in loops on a machine kept busy on purpose, on Windows and
+  Linux
+- ✅ AI assistants (MCP) can provide a referring page (referer) when adding downloads, preserving
+  the Referer header for protected CDNs and expired link renewal (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can provide a custom User-Agent header when adding downloads, enabling
+  downloads from sites and CDNs that require specific browser signatures (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can provide a Cookie header when adding downloads, enabling
+  downloads that require session authentication (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The automation API's add may carry the checksum the finished file must have (the command
+  line's `--checksum` form), kept with the download for **Verify checksum** and the finish
+  check; one the app can't read is refused (`bad-request`) instead of dropped
+- ✅ The command line's add accepts `--referer` (or `--referrer`) to preserve the referring page
+  address (Referer header) for protected CDNs and expired link renewal (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line's add accepts `--user-agent` (or `--ua`) to send a custom User-Agent header
+  with the download request (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line's add accepts `--cookie` (or `--cookies`) to send a Cookie header with the
+  download request; `-` reads it from standard input instead of the command line (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The tests run in English whatever Windows' display language is: a Chinese, German or
+  Arabic Windows ran 27 of `mdm-app`'s tests red on code CI's English runner passed, as the
+  interface language followed the system in tests too
+- ✅ **Alt** and a button's underlined letter press the button (the **Scheduler**'s **Apply**,
+  **Close** and the others pressed nothing), letters of other scripts too, and **Alt** in such a
+  window underlines the letters in every look, as in the main window
+- ✅ With **Start immediately** on, picking the folder the early download already saves to in
+  **Save As** keeps its name: the download's own `.mdm.part` and `.mdm.json` no longer count as
+  taken, so it isn't offered as `song (1).mp3` and doesn't start over
+  ([#597](https://github.com/anefzaoui/misterdownloadmanager/issues/597))
 - ✅ The crash crate's tests build on 32-bit Windows again: the alternate-stack test uses a
   top a 32-bit `usize` can hold, with that crash's own address kept in its comment, so CI's
   `windows-x86` job is green again
@@ -1164,6 +1209,10 @@ These ship in the next version.
 - ✅ Sites that let only browsers through (Cloudflare's bot check, FileHippo's 412): MDM tries once
   more connecting the way a browser does, with the cookies it has for that site (part of
   [#668](https://github.com/anefzaoui/misterdownloadmanager/issues/668))
+- ✅ Downloads through the browser-like connection use all their connections, each asking for its
+  part, and fall back to one when a site refuses parts there; a stream's pieces behind a bot check
+  are asked that way too ([#668](https://github.com/anefzaoui/misterdownloadmanager/issues/668),
+  [#1289](https://github.com/anefzaoui/misterdownloadmanager/issues/1289))
 - ✅ Downloads from FileHippo no longer fail at once with 412 Precondition Failed: a link the site
   refuses goes on from where the browser's own download of it had reached, then through the
   browser-like connection above
@@ -1360,10 +1409,52 @@ These ship in the next version.
 - ✅ The command line starts and stops a queue of the running app: `start-queue` and
   `stop-queue`, the main download queue unless one is named (thanks to
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line adds downloads to the running app: `add <url>`, with folder, file name, category, queue, checksum, referer and silent flags (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can choose a download queue and a category when adding downloads, and start or stop a queue by name (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can filter downloads by category or queue in `list_downloads`, and see the app's available queues and categories (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ AI assistants (MCP) can inspect a download by id and see free disk space in `list_downloads` (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line lists and filters downloads: `status` (or `list`) takes `--id`, `--status`, `--category`, `--queue`, `--search` and `--limit` flags (thanks to
+- ✅ The command line prints pairing details as JSON: `pair --json` outputs code, valid minutes and URLs for scripts (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ Linux (X11): Minimize to the notification area takes the window out of the taskbar's window
   list, as closing it does ([#1255](https://github.com/anefzaoui/misterdownloadmanager/issues/1255))
 - ✅ A failed download says why in MDM's log too, with the site's name and no tokens
   ([#1262](https://github.com/anefzaoui/misterdownloadmanager/issues/1262))
+- ✅ Download panels: the hint under the sites list has its own row instead of running under
+  Export...
+- ✅ Linux: pausing or cancelling a video (or a gallery) ends all of yt-dlp's processes, so it
+  stops downloading; MDM's exit and the command line's Ctrl+C end them too
+  ([#1301](https://github.com/anefzaoui/misterdownloadmanager/issues/1301); thanks to
+  [@arifrhm](https://github.com/arifrhm), who found the same cause)
+- ✅ Internet Archive: a download that needs your account keeps the browser's sign-in on its way to
+  archive.org's storage servers (thanks to [@arifrhm](https://github.com/arifrhm))
+  ([#1298](https://github.com/anefzaoui/misterdownloadmanager/issues/1298))
+- ✅ Persian: a native speaker's review of the first 23 texts (thanks to
+  [@RedemptionMHA](https://github.com/RedemptionMHA))
+- ✅ Linux: the notification area's icon has its name (KDE showed none)
+  ([#1305](https://github.com/anefzaoui/misterdownloadmanager/issues/1305))
+- ✅ Pause and Resume answer at once on a slow disk: the download stops right away and MDM
+  finishes writing in the background; a resume no longer waits for the disk before its first
+  request ([#1328](https://github.com/anefzaoui/misterdownloadmanager/issues/1328))
+- ✅ Windows: Open folder finds a file manager that names its own default verb for folders
+  (One Commander) (thanks to [@haohaaaa](https://github.com/haohaaaa))
+  ([#1335](https://github.com/anefzaoui/misterdownloadmanager/issues/1335))
+- ✅ About's links include **Contributors**, which opens the website's page that thanks everyone who
+  sent a pull request, opened an issue or joined a conversation (built from GitHub at every build,
+  so it never goes stale): the smaller form of
+  [#1253](https://github.com/anefzaoui/misterdownloadmanager/pull/1253), whose author
+  [@9M2PJU](https://github.com/9M2PJU) handed it over
+- ✅ Windows: a dialog that opens while you are in another program (the duplicate download
+  question the browser asks, Download File Info) no longer brings the main window up behind it;
+  it has its own taskbar button
+- ✅ The same video picked from the quality menu in a second tab of its page is a duplicate, even
+  when its stream's address is signed for each load (it was downloaded again without a word)
+- ✅ Telegram Web's downloads stay with the browser, which makes them in the page
+  ([#1345](https://github.com/anefzaoui/misterdownloadmanager/issues/1345))
 
 ## Being worked on
 
