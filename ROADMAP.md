@@ -562,6 +562,9 @@ Bug fixes from the first days of 0.5.0, a Safari extension, and more file types.
 
 These ship in the next version.
 
+- ✅ Your own yt-dlp config file: Options → Sites Logins → Use my yt-dlp config file (off by
+  default) lets yt-dlp read it for MDM's videos, MDM's own choices still winning; an external
+  downloader it names doesn't stop the progress
 - ✅ The crash crate's tests build on 32-bit Windows again: the alternate-stack test uses a
   top a 32-bit `usize` can hold, with that crash's own address kept in its comment, so CI's
   `windows-x86` job is green again
