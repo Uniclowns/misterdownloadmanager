@@ -1100,16 +1100,25 @@ pub fn set_user_config(on: bool) {
     USER_CONFIG.store(on, Ordering::Relaxed);
 }
 
-/// yt-dlp's arguments for the person's own config file: none read (`--ignore-config`), or read,
-/// with MDM's arguments after it still winning. Then yt-dlp's own downloader for HTTP, FTP and
-/// DASH: an external one the config may name (aria2c) prints no progress lines for the list.
-/// shortcut: m3u8 left out (native breaks the live HLS yt-dlp gives ffmpeg), so HLS through an
-/// external downloader shows no progress; add it if that matters.
+/// With the person's own config file read (yt-dlp reads it before every argument), what MDM
+/// can't leave to it, placed before MDM's own arguments so those still win: yt-dlp's own
+/// downloader (an external one, aria2c, prints no progress lines, and one named for HLS skips
+/// the fix-up of what the engine joined; live HLS still goes to ffmpeg, live DASH is left out
+/// as `native` would keep it from ffmpeg), no download archive (it skips a look-up of a video
+/// once downloaded), no forced overwrites (it implies `--no-continue`, deleting the engine's
+/// streams), and the default fix-ups. Nothing when the config isn't read (`--ignore-config`).
 fn config_args(on: bool) -> &'static [&'static str] {
     if on {
-        &["--downloader", "http,ftp,dash:native"]
+        &[
+            "--downloader",
+            "http,ftp,m3u8:native",
+            "--no-download-archive",
+            "--no-force-overwrites",
+            "--fixup",
+            "detect_or_warn",
+        ]
     } else {
-        &["--ignore-config"]
+        &[]
     }
 }
 
@@ -1125,8 +1134,12 @@ pub fn ytdlp(
 ) -> Result<Command, ProcError> {
     let mut cmd = helper_command(exe);
     let route = through_adapter(&mut cmd, Helper::YtDlp, Some(url))?;
+    let own_config = USER_CONFIG.load(Ordering::Relaxed);
+    cmd.args(config_args(own_config));
     layers(&mut cmd, user, ours)?;
-    cmd.args(config_args(USER_CONFIG.load(Ordering::Relaxed)));
+    if !own_config {
+        cmd.arg("--ignore-config");
+    }
     cmd.args(["--no-exec", "--no-update"]);
     cmd.args(js_runtime_args(exe));
     cmd.args(cert_args(SYSTEM_CERTS.load(Ordering::Relaxed)));
@@ -1147,8 +1160,12 @@ pub fn ytdlp_info(
 ) -> Result<Command, ProcError> {
     let mut cmd = helper_command(exe);
     let route = through_adapter(&mut cmd, Helper::YtDlp, None)?;
+    let own_config = USER_CONFIG.load(Ordering::Relaxed);
+    cmd.args(config_args(own_config));
     layers(&mut cmd, user, ours)?;
-    cmd.args(config_args(USER_CONFIG.load(Ordering::Relaxed)));
+    if !own_config {
+        cmd.arg("--ignore-config");
+    }
     cmd.args(["--no-exec", "--no-update"]);
     cmd.args(js_runtime_args(exe));
     cmd.args(cert_args(SYSTEM_CERTS.load(Ordering::Relaxed)));
@@ -2286,8 +2303,18 @@ foreach ($d in $env:PATH.Split(';')) {
 
     #[test]
     fn the_persons_config_only_when_asked() {
-        assert_eq!(config_args(false), ["--ignore-config"]);
-        assert_eq!(config_args(true), ["--downloader", "http,ftp,dash:native"]);
+        assert!(config_args(false).is_empty());
+        assert_eq!(
+            config_args(true),
+            [
+                "--downloader",
+                "http,ftp,m3u8:native",
+                "--no-download-archive",
+                "--no-force-overwrites",
+                "--fixup",
+                "detect_or_warn",
+            ]
+        );
     }
 
     #[test]
