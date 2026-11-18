@@ -15,9 +15,9 @@ jobs:
     defaults:
       run:
         shell: powershell
-    env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}\t
     steps:
+      - name: Target folder
+        run: '"CARGO_TARGET_DIR=$env:RUNNER_TEMP\t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
