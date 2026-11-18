@@ -567,6 +567,21 @@ These ship in the next version.
 - ✅ Your own yt-dlp config file: Options → Sites Logins → Use my yt-dlp config file (off by
   default) lets yt-dlp read it for the app's videos, most of MDM's own choices still winning; an
   external downloader it names doesn't stop the progress
+- ✅ Torrents connect over uTP (BitTorrent over UDP) beside TCP, on by default with a switch in
+  Torrent settings: peers that take only uTP are reached, so torrents find as many peers as in
+  other clients; off with a SOCKS5 proxy, held to a chosen network adapter
+  ([#1384](https://github.com/anefzaoui/misterdownloadmanager/issues/1384))
+- ✅ A stream's own address — an HLS playlist (`.m3u8`) or DASH's (`.mpd`) — opens the video
+  window like a page's: pasting a playlist downloads the video and merges it into one playable
+  file, instead of saving the playlist itself
+- ✅ The window never waits for the disk to log: lines go to the log's own thread through a
+  queue that drops (and counts) what a stuck disk can't take, and a crash or freeze report
+  carries the last lines from memory when the file doesn't have them yet
+  ([#1354](https://github.com/anefzaoui/misterdownloadmanager/issues/1354))
+- ✅ Check for updates and the yt-dlp and ffmpeg downloads work when GitHub's API refuses a shared
+  internet address for its hourly limit: the release is read from github.com's own release pages
+  instead, and checked as before (signed checksum lists, checksums)
+  ([#1337](https://github.com/anefzaoui/misterdownloadmanager/issues/1337))
 - ✅ Windows: dialogs open on the main window's monitor when the monitors have different display
   scales (a 125 % laptop and a 100 % monitor), where they opened out of sight; a window on no
   screen is brought onto one ([#1311](https://github.com/anefzaoui/misterdownloadmanager/issues/1311))
@@ -599,6 +614,14 @@ These ship in the next version.
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ The command line's add accepts `--cookie` (or `--cookies`) to send a Cookie header with the
   download request; `-` reads it from standard input instead of the command line (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line's get and resume accept `--cookie` (or `--cookies`), `--referer` (or
+  `--referrer`), and `--user-agent` (or `--ua`) to send custom request headers with the download;
+  `-` reads cookies from standard input instead of the command line, and resume accepts them
+  afresh without saving headers to the state file (thanks to
+  [@abdul-karim-mia](https://github.com/abdul-karim-mia))
+- ✅ The command line's add accepts `--private` (or `-p`) to add downloads flagged as private, and
+  the MCP server's add_download tool accepts `private: true` (thanks to
   [@abdul-karim-mia](https://github.com/abdul-karim-mia))
 - ✅ The tests run in English whatever Windows' display language is: a Chinese, German or
   Arabic Windows ran 27 of `mdm-app`'s tests red on code CI's English runner passed, as the
@@ -1453,8 +1476,44 @@ These ship in the next version.
   it has its own taskbar button
 - ✅ The same video picked from the quality menu in a second tab of its page is a duplicate, even
   when its stream's address is signed for each load (it was downloaded again without a word)
+- ✅ **Refresh download address** opens the file page a file host's Download button was on (a
+  premium Rapidgator file), not the site's home page, in Chromium browsers too: the page is
+  noted as the download's load starts, before the browser closes the tab the button opened or
+  the tab moves on; a site's address alone is the download's page only when nothing names a page
+  on it ([#607](https://github.com/anefzaoui/misterdownloadmanager/issues/607))
+- ✅ A download whose link expired goes on: Rapidgator's file page (the tab the download came
+  from) is asked with the browser's sign-in for a fresh link, at most once per expiry and never
+  again at once for a link it then refused; a Rapidgator download stopped with an expired or
+  refused link, or any download after **Refresh download address**, takes the browser's own next
+  hand-off of the same file (same site, same name, same size when known; never a private
+  window's, nor an explicit, command-line or script add) as its new address and goes on, instead
+  of a second row starting over; a fresh link on another of Rapidgator's own servers, whose copy
+  has its own ETag and date, goes on there instead of failing at 100% with "the file changed on
+  the server" (any other site's same-size copy still stops)
+- ✅ Linux (XWayland on Hyprland): a click in MDM's window gives it the keyboard again where
+  Hyprland had left it with another X11 program's window, or with none after the window came back
+  from the notification area; a box in File Properties took the caret but no typing or Ctrl+V
+- ✅ Linux: started without a Wayland display in a Wayland session (an XWayland-only start),
+  MDM knows its windows are XWayland's; Download File Info and Download complete answered a click
+  a second or two late while the main window was out of sight (on another workspace)
 - ✅ Telegram Web's downloads stay with the browser, which makes them in the page
   ([#1345](https://github.com/anefzaoui/misterdownloadmanager/issues/1345))
+- ✅ A video in another site's player embedded in a page is named by the page's title, not the
+  player's own ("Watch file.mp4 - VOE")
+  ([#1351](https://github.com/anefzaoui/misterdownloadmanager/issues/1351))
+- ✅ Torrents start again after a crash or a power cut left their saved list empty: the list is
+  kept aside and a new one begins, the download list's torrents are added again from MDM's own
+  copies and find their pieces on disk; MDM's own rewrite of the list reaches the disk before it
+  replaces the old one ([#1357](https://github.com/anefzaoui/misterdownloadmanager/issues/1357))
+- ✅ **Options → General → Keep private-window downloads in the list** (off by default): a private
+  window's downloads are saved like any other and survive MDM closing or restarting, still apart
+  from normal windows' downloads (a saved private-window mark; their cookies never saved); a
+  private window's video never falls back to Cookies for video sites, after a restart either
+- ✅ The log's test of a flush writing what was dropped holds on a slow machine too (it failed now
+  and then on macOS)
+- ✅ The lab VM scripts clear the temporary files an interrupted run left behind
+- ✅ The website's translation check takes a list of the app's names (themes) as it is, so those
+  lines are no longer left in English
 
 ## Being worked on
 
@@ -1473,6 +1532,11 @@ These ship in a later version, when they're ready.
 
 ### Bugs being looked into
 
+- 🔍 Linux on native Wayland: while the main window is out of sight (on another workspace), the
+  other windows (Download File Info, Download complete, the dialogs) don't open or don't answer
+  until it is shown again, as the compositor doesn't let a window it isn't showing redraw and
+  every dialog is drawn with the main window; the fix is in MDM's copy of the window library
+  (eframe), to come with it
 - 🔍 A look-up that waits 20 s on a video server the network doesn't answer
   ([#1053](https://github.com/anefzaoui/misterdownloadmanager/issues/1053))
 - 🔍 The main window's own looks at the disk on a drive slow to answer: starting or resuming a
