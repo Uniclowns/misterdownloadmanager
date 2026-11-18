@@ -1115,7 +1115,9 @@ pub fn set_user_config(on: bool) {
 /// the fix-up of what the engine joined; live HLS still goes to ffmpeg, live DASH is left out
 /// as `native` would keep it from ffmpeg), no download archive (it skips a look-up of a video
 /// once downloaded), no forced overwrites (it implies `--no-continue`, deleting the engine's
-/// streams), and the default fix-ups. Nothing when the config isn't read (`--ignore-config`).
+/// streams), the default fix-ups, and no marking as watched (`--mark-watched` would mark every
+/// look-up, the quality menu's included, not only what is downloaded). Nothing when the config
+/// isn't read (`--ignore-config`).
 fn config_args(on: bool) -> &'static [&'static str] {
     if on {
         &[
@@ -1125,6 +1127,7 @@ fn config_args(on: bool) -> &'static [&'static str] {
             "--no-force-overwrites",
             "--fixup",
             "detect_or_warn",
+            "--no-mark-watched",
         ]
     } else {
         &[]
@@ -2469,6 +2472,7 @@ foreach ($d in $env:PATH.Split(';')) {
                 "--no-force-overwrites",
                 "--fixup",
                 "detect_or_warn",
+                "--no-mark-watched",
             ]
         );
     }
