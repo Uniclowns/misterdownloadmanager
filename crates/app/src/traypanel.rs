@@ -246,7 +246,8 @@ fn draw(ui: &mut egui::Ui, p: &egui::Painter, o: Pos2, rows: &[Row], events: &mu
             &note,
             winui::MUTED(),
             o.x + W - 12.0,
-            "tray-panel-note",
+            // Its own id for each of the two notes (nothing running, or how many more).
+            ("tray-panel-note", rows.is_empty()),
         );
         y += NOTE;
     }
