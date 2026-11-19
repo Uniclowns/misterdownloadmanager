@@ -1385,6 +1385,11 @@ pub struct App {
     after_stop: Vec<(u64, Option<(PathBuf, bool)>)>,
     /// Tasks → Show drop target: the floating box links are dragged onto.
     drop_target: Option<crate::droptarget::DropTarget>,
+    /// The tray icon's downloads panel while it shows (#1365).
+    tray_panel: Option<crate::traypanel::Panel>,
+    /// When the panel last closed by losing the focus: a click on the icon then is the click
+    /// that took the focus from it, and closes it rather than opening it again.
+    tray_panel_closed: Option<Instant>,
     /// Links and files dropped on the main window.
     drops: crate::droptarget::Drops,
     /// The queue selection panel after Download Later / a batch: the downloads waiting for it.
@@ -2205,6 +2210,8 @@ impl App {
             video_places: crate::videoplace::VideoPlaces::new(std::sync::Arc::new(video_place)),
             queue_pick: None,
             drop_target: None,
+            tray_panel: None,
+            tray_panel_closed: None,
             drops: Default::default(),
             after_stop: Vec::new(),
             confirm_category_delete: None,
@@ -3291,6 +3298,17 @@ impl App {
                 if let Some(at) = self.drop_target.as_ref().map(|d| d.center()) {
                     self.drop_target_menu(at, ctx);
                 }
+            }
+            // Off-screen test copies: the tray icon's downloads panel (#1365's shots and checks),
+            // as a click on the icon opens it, here beside the main window (a posted click has
+            // no icon to land on).
+            "tray-panel" if crate::offscreen() => {
+                let at = ctx
+                    .input(|i| i.viewport().outer_rect)
+                    .map_or(egui::pos2(600.0, 400.0), |r| {
+                        r.min + egui::vec2(600.0, 400.0)
+                    });
+                self.tray_panel = Some(crate::traypanel::Panel::new(at));
             }
             // The main window minimized, not to the tray (tests of #162).
             "minimized" => ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)),
@@ -4875,12 +4893,19 @@ impl App {
             // it is, the window behaves as with no tray host.
             #[cfg(target_os = "linux")]
             {
-                self.tray_setup =
-                    Some(crate::tray::Setup::start(ctx, self.settings.speed_limit_on));
+                self.tray_setup = Some(crate::tray::Setup::start(
+                    ctx,
+                    self.settings.speed_limit_on,
+                    self.settings.tray_panel,
+                ));
             }
             #[cfg(not(target_os = "linux"))]
             {
-                self.tray = crate::tray::Tray::new(ctx, self.settings.speed_limit_on);
+                self.tray = crate::tray::Tray::new(
+                    ctx,
+                    self.settings.speed_limit_on,
+                    self.settings.tray_panel,
+                );
                 if self.tray.is_some() {
                     tracing::info!("tray icon shown");
                 }
@@ -4932,6 +4957,14 @@ impl App {
         }
         if let (Some(t), Some(q)) = (&self.tray, self.queues.first()) {
             t.set_queue(q.running);
+        }
+        if let Some(t) = &self.tray {
+            t.set_panel_on_click(self.settings.tray_panel);
+        }
+        // The panel is drawn in the main window's pass, which a hidden or minimized main window
+        // runs only when asked (#1365).
+        if self.tray_panel.is_some() {
+            ctx.request_ui_pass(egui::ViewportId::ROOT);
         }
         if let Some(t) = &self.tray {
             let mut tip = match self.activity() {
@@ -4988,7 +5021,30 @@ impl App {
                     self.show_window(ctx);
                     continue;
                 }
-                TrayCmd::Toggle => {
+                // A click on the icon: the downloads panel there (#1365), or with "Show
+                // downloads on click" unticked the window shown or hidden, as before.
+                TrayCmd::Click(x, y) if self.settings.tray_panel => {
+                    let at = egui::pos2(x as f32, y as f32) / ctx.pixels_per_point();
+                    self.toggle_tray_panel(at);
+                    continue;
+                }
+                // The panel's double click: the window (the click before it opened the panel).
+                TrayCmd::DoubleClick => {
+                    if self.settings.tray_panel {
+                        self.tray_panel = None;
+                        self.show_window(ctx);
+                    }
+                    continue;
+                }
+                TrayCmd::PanelOnClick => {
+                    self.settings.tray_panel = !self.settings.tray_panel;
+                    if !self.settings.tray_panel {
+                        self.tray_panel = None;
+                    }
+                    self.dirty = true;
+                    continue;
+                }
+                TrayCmd::Click(..) => {
                     let minimized = ctx.input(|i| i.viewport().minimized == Some(true));
                     // Behind other windows it still reads as shown: only hide when
                     // frontmost, otherwise bring it forward. On Windows the tray
@@ -11086,6 +11142,64 @@ impl App {
 
     /// Tasks → Show drop target: the box while it's on; what is dropped on it is added as if
     /// given on the command line (an address, a magnet link, a .torrent file).
+    /// A click on the tray icon with "Show downloads on click" ticked (#1365): the panel at `at`
+    /// (screen, points), or closed when it shows, or just closed by this very click (which took
+    /// the focus from it).
+    fn toggle_tray_panel(&mut self, at: egui::Pos2) {
+        let just_closed = self
+            .tray_panel_closed
+            .take()
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(400));
+        if self.tray_panel.take().is_none() && !just_closed {
+            self.tray_panel = Some(crate::traypanel::Panel::new(at));
+        }
+    }
+
+    /// The tray icon's downloads panel while it shows (#1365), and what was asked in it.
+    fn show_tray_panel(&mut self, ctx: &egui::Context) {
+        let Some(panel) = &mut self.tray_panel else {
+            return;
+        };
+        use crate::traypanel::Event;
+        for event in panel.show(ctx, &self.items) {
+            tracing::info!("tray panel: {event:?}");
+            match event {
+                Event::Pause(id) => {
+                    if let Some(p) = &mut self.tray_panel {
+                        p.paused(id);
+                    }
+                    self.stop_by_hand(id);
+                }
+                Event::Resume(id) => {
+                    if let Some(p) = &mut self.tray_panel {
+                        p.forget(id);
+                    }
+                    self.start(id, true);
+                }
+                Event::Cancel(id) => {
+                    if let Some(p) = &mut self.tray_panel {
+                        p.forget(id);
+                    }
+                    self.stop(id);
+                }
+                Event::OpenMain => {
+                    self.tray_panel = None;
+                    self.show_window(ctx);
+                    #[cfg(target_os = "macos")]
+                    if !crate::offscreen() {
+                        crate::unix::macos_activate_and_show();
+                    }
+                    return;
+                }
+                Event::Close => {
+                    self.tray_panel = None;
+                    self.tray_panel_closed = Some(Instant::now());
+                    return;
+                }
+            }
+        }
+    }
+
     fn drop_target(&mut self, ctx: &egui::Context) {
         if !self.settings.drop_target {
             self.drop_target = None;
@@ -13183,6 +13297,7 @@ impl App {
         self.poll_cnl(&ctx);
         self.poll_imports();
         self.drop_target(&ctx);
+        self.show_tray_panel(&ctx);
         self.main_drops(&ctx);
         self.remember_layout(&ctx);
         // Light or dark: IDM follows Windows' app mode (checked every 2 s) unless View → Dark

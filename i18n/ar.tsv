@@ -469,6 +469,9 @@
 #. text in countries.rs
 #. a country's name (where a download's server is)
 	American Samoa	ساموا الأمريكية
+#. the notification-area icon's panel (#1365), under the downloads it lists: how many others are running; {count} a number
+#, machine
+	And {count} more	و{count} غيرها
 #. text in countries.rs
 #. a country's name (where a download's server is)
 	Andorra	أندورا
@@ -2622,6 +2625,9 @@
 #. message or event log entry in the main window
 #, machine
 	No download links were found in the clipboard. Copy a text with http, https, ftp or magnet links in it, and try again.	لم يتم العثور على روابط تنزيل في الحافظة. انسخ نصا يحتوي على روابط http أو https أو ftp أو روابط مغناطيسية، ثم حاول مرة أخرى.
+#. the notification-area icon's panel (#1365) when no download is running
+#, machine
+	No downloads are running	لا توجد تنزيلات جارية
 #. message or event log entry in the main window
 #. title in the empty download list (this category or queue has no downloads)
 	No downloads here	لا توجد تنزيلات هنا
@@ -3455,6 +3461,9 @@
 #. checkbox in the Options window
 #, machine
 	Show download progress dialog when a download starts	إظهار مربع حوار تقدم التنزيل عند بدء التنزيل
+#. tray menu: a check item; ticked, a click on the icon shows a small panel with the downloads now running (#1365); unticked, the click opens the main window
+#, machine
+	Show downloads on click	إظهار التنزيلات عند النقر
 #. button in a dialog box
 #. button: shows these downloads in MDM's list, selected
 #, machine

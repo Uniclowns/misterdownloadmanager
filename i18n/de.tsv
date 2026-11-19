@@ -571,6 +571,9 @@
 #. a country's name (where a download's server is)
 #, machine
 	American Samoa	Amerikanisch-Samoa
+#. the notification-area icon's panel (#1365), under the downloads it lists: how many others are running; {count} a number
+#, machine
+	And {count} more	Und {count} weitere
 #. text in countries.rs
 #. a country's name (where a download's server is)
 #, machine
@@ -3308,6 +3311,9 @@
 #. message or event log entry in the main window
 #, machine
 	No download links were found in the clipboard. Copy a text with http, https, ftp or magnet links in it, and try again.	Es wurden keine Download-Links in der Zwischenablage gefunden. Kopieren Sie einen Text mit http-, https-, ftp- oder Magnet-Links und versuchen Sie es erneut.
+#. the notification-area icon's panel (#1365) when no download is running
+#, machine
+	No downloads are running	Es laufen keine Downloads
 #. message or event log entry in the main window
 #. title in the empty download list (this category or queue has no downloads)
 #, machine
@@ -4377,6 +4383,9 @@
 #. checkbox in the Options window
 #, machine
 	Show download progress dialog when a download starts	Download-Fortschrittsdialog anzeigen, wenn ein Download startet
+#. tray menu: a check item; ticked, a click on the icon shows a small panel with the downloads now running (#1365); unticked, the click opens the main window
+#, machine
+	Show downloads on click	Downloads beim Klicken anzeigen
 #. button in a dialog box
 #. button: shows these downloads in MDM's list, selected
 #, machine

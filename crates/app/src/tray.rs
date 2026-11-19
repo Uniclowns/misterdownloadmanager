@@ -1,6 +1,7 @@
 //! The notification-area icon (IDM: "IDM menu pops up when you right click on IDM icon"
-//! [IDM-doc]). Left click shows the window again, or hides it there while it shows; right click
-//! shows the menu. The menu's
+//! [IDM-doc]). Left click shows the downloads panel (traypanel.rs, #1365), or, with the menu's
+//! "Show downloads on click" unticked, shows the window again or hides it there while it shows;
+//! a double click (Windows) opens the window; right click shows the menu. The menu's
 //! contents are ours ([unknown] IDM's exact items, lab). Windows, macOS (menu bar) and Linux
 //! (StatusNotifierItem over D-Bus: KDE, GNOME with its AppIndicator extension).
 
@@ -25,9 +26,15 @@ use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIc
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayCmd {
     Show,
-    /// Left click on the icon: the window back when hidden or behind other
-    /// windows, hidden there when frontmost.
-    Toggle,
+    /// Left click on the icon, where it was (screen pixels; 0, 0 where the tray doesn't say):
+    /// the downloads panel there (#1365), or with "Show downloads on click" unticked the window
+    /// back when hidden or behind other windows, hidden there when frontmost.
+    Click(i32, i32),
+    /// Left double click on the icon (Windows only: the other trays send none): the window.
+    DoubleClick,
+    /// The menu's "Show downloads on click" chosen: the setting turned the other way (the app
+    /// ticks the item as the setting is, whatever the menu did with it on its own).
+    PanelOnClick,
     AddUrl,
     Batch,
     /// Add batch download from clipboard (#709).
@@ -104,6 +111,10 @@ pub fn on_close(
     }
 }
 
+/// A left click this soon after a double click is the double click's last release (Windows'
+/// default double-click time is 500 ms).
+const DOUBLE_CLICK: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// The longest download name in the tray menu, in characters (the rest ends in "…").
 const MENU_NAME_MAX: usize = 48;
 
@@ -118,12 +129,16 @@ pub struct Tray {
     queue_running: std::cell::Cell<Option<bool>>,
     /// The downloads "Downloads in progress" was last given (rebuilt only when they change).
     shown_downloads: std::cell::RefCell<Vec<(u64, String)>>,
+    /// What "Show downloads on click" was last set to (told only when it changes).
+    panel_on_click: std::cell::Cell<Option<bool>>,
 }
 
 /// The icon and its menu, as the system's tray library makes them.
 struct Native {
     limiter_on: CheckMenuItem,
     limiter_off: CheckMenuItem,
+    /// "Show downloads on click" (#1365).
+    panel_on_click: CheckMenuItem,
     /// Start and Stop main download queue: one of them enabled, as the queue runs.
     start_queue: MenuItem,
     stop_queue: MenuItem,
@@ -163,9 +178,9 @@ impl Tray {
     /// The icon and its menu; events wake `ctx`. None if the shell refuses the icon (logged).
     /// Linux makes it beside the window instead: [`Setup`].
     #[cfg(not(target_os = "linux"))]
-    pub fn new(ctx: &egui::Context, limiter: bool) -> Option<Tray> {
+    pub fn new(ctx: &egui::Context, limiter: bool, panel: bool) -> Option<Tray> {
         let (tx, rx) = channel();
-        Some(Tray::with(Native::new(ctx, limiter, tx)?, rx))
+        Some(Tray::with(Native::new(ctx, limiter, panel, tx)?, rx))
     }
 
     fn with(native: Held, rx: Receiver<TrayCmd>) -> Tray {
@@ -175,6 +190,7 @@ impl Tray {
             tip: Default::default(),
             queue_running: std::cell::Cell::new(None),
             shown_downloads: Default::default(),
+            panel_on_click: std::cell::Cell::new(None),
         }
     }
 
@@ -263,6 +279,13 @@ impl Tray {
     pub fn set_limiter(&self, on: bool) {
         self.at(move |n| n.set_limiter(on));
     }
+
+    /// Keep "Show downloads on click" in step with the setting (told only when it changes).
+    pub fn set_panel_on_click(&self, on: bool) {
+        if self.panel_on_click.replace(Some(on)) != Some(on) {
+            self.at(move |n| n.panel_on_click.set_checked(on));
+        }
+    }
 }
 
 /// The icon as [`Tray`] holds it: itself (Windows, macOS), or the thread that keeps it (Linux).
@@ -300,13 +323,13 @@ pub enum Came {
 impl Setup {
     /// Start making the icon and its menu beside the window; its events, and its coming, wake
     /// `ctx`.
-    pub fn start(ctx: &egui::Context, limiter: bool) -> Setup {
+    pub fn start(ctx: &egui::Context, limiter: bool, panel: bool) -> Setup {
         let (tx, rx) = channel();
         let made = ctx.clone();
         let wake = ctx.clone();
         let native = beside::Beside::start(
             "tray icon",
-            move || Native::new(&made, limiter, tx),
+            move || Native::new(&made, limiter, panel, tx),
             move || wake.request_repaint(),
         );
         // To log a long wait once it is long, even with nothing else to draw.
@@ -433,7 +456,7 @@ impl Native {
 
     /// The icon and its menu; events go to `tx` and wake `ctx`. None if the shell refuses the icon
     /// (logged).
-    fn new(ctx: &egui::Context, limiter: bool, tx: Sender<TrayCmd>) -> Option<Native> {
+    fn new(ctx: &egui::Context, limiter: bool, panel: bool, tx: Sender<TrayCmd>) -> Option<Native> {
         let menu = Menu::new();
         let mut items = Vec::new();
         let mut labels = Vec::new();
@@ -464,6 +487,10 @@ impl Native {
         let downloads_label = mark("Downloads in progress");
         let downloads = Submenu::new(crate::i18n::t(downloads_label), false);
         menu.append(&downloads).ok();
+        // i18n: tray menu: a check item; ticked, a click on the icon shows a small panel with the downloads now running (#1365); unticked, the click opens the main window
+        let panel_label = mark("Show downloads on click");
+        let panel_on_click = CheckMenuItem::new(crate::i18n::t(panel_label), true, panel, None);
+        menu.append(&panel_on_click).ok();
         menu.append(&PredefinedMenuItem::separator()).ok();
         let limiter_label = mark("Speed Limiter");
         let limiter_menu = Submenu::new(crate::i18n::t(limiter_label), true);
@@ -492,6 +519,7 @@ impl Native {
         drop(add);
         items.push((limiter_on.id().clone(), TrayCmd::LimiterOn));
         items.push((limiter_off.id().clone(), TrayCmd::LimiterOff));
+        items.push((panel_on_click.id().clone(), TrayCmd::PanelOnClick));
 
         // Windows: the size the taskbar draws the icon at, and the taskbar, drawn again for another
         // by the watcher (`WindowsShell::fit`).
@@ -546,19 +574,39 @@ impl Native {
 
         let wake = |tx: &Sender<TrayCmd>, ctx: &egui::Context| (tx.clone(), ctx.clone());
         let (icon_tx, icon_ctx) = wake(&tx, ctx);
+        // Windows sends a double click as down, up, double click, up: the last up is part of the
+        // double click, not a click of its own (it would open the panel again over the window).
+        let doubled: Mutex<Option<std::time::Instant>> = Mutex::new(None);
         TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = e
-            {
-                // The window is asked for: a stall from now on is felt (crash.rs, #1126). Seen
-                // during one where the icon's events come on a thread of their own (Linux).
-                crate::crash::asked();
-                let _ = icon_tx.send(TrayCmd::Toggle);
-                icon_ctx.request_repaint();
-            }
+            let cmd = match e {
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    position,
+                    ..
+                } => {
+                    let last = doubled.lock().ok().and_then(|mut d| d.take());
+                    if last.is_some_and(|t| t.elapsed() < DOUBLE_CLICK) {
+                        return;
+                    }
+                    TrayCmd::Click(position.x.round() as i32, position.y.round() as i32)
+                }
+                TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    if let Ok(mut d) = doubled.lock() {
+                        *d = Some(std::time::Instant::now());
+                    }
+                    TrayCmd::DoubleClick
+                }
+                _ => return,
+            };
+            // The window is asked for: a stall from now on is felt (crash.rs, #1126). Seen
+            // during one where the icon's events come on a thread of their own (Linux).
+            crate::crash::asked();
+            let _ = icon_tx.send(cmd);
+            icon_ctx.request_repaint();
         }));
         let (menu_tx, menu_ctx) = wake(&tx, ctx);
         let download_ids: Arc<Mutex<Vec<(MenuId, u64)>>> = Arc::default();
@@ -585,10 +633,12 @@ impl Native {
         labels.push((Entry::Sub(downloads.clone()), downloads_label));
         labels.push((Entry::Check(limiter_on.clone()), on_label));
         labels.push((Entry::Check(limiter_off.clone()), off_label));
+        labels.push((Entry::Check(panel_on_click.clone()), panel_label));
         Some(Native {
             tray,
             limiter_on,
             limiter_off,
+            panel_on_click,
             start_queue,
             stop_queue,
             downloads,

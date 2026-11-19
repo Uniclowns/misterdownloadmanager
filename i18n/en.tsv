@@ -434,6 +434,10 @@
 #. text in countries.rs
 #. a country's name (where a download's server is)
 	American Samoa	American Samoa
+#. text in traypanel.rs
+#. the notification-area icon's panel (#1365), under the downloads it lists: how many others are running; {count} a number
+#. {count} = a number (keep the braces as they are)
+	And {count} more	And {count} more
 #. text in countries.rs
 #. a country's name (where a download's server is)
 	Andorra	Andorra
@@ -668,7 +672,7 @@
 #. text in countries.rs
 #. a country's name (where a download's server is)
 	Canada	Canada
-#. button in the Batch download window; button in categories.rs; text in the Checksum window; button in a dialog box; button in extracting archives (a download's log, the Archive password window); button in the Find window; button in gallerydlg.rs; text in the Link grabber window; text in the Help menu's windows (About, updates, shortcuts, Tell a friend); button in langpick.rs; button in the Options window; button in a download's progress window; text in remote.rs; button in the Scheduler window; button in the Add torrent window; button in the Download video window
+#. button in the Batch download window; button in categories.rs; text in the Checksum window; button in a dialog box; button in extracting archives (a download's log, the Archive password window); button in the Find window; button in gallerydlg.rs; text in the Link grabber window; text in the Help menu's windows (About, updates, shortcuts, Tell a friend); button in langpick.rs; button in the Options window; button in a download's progress window; text in remote.rs; button in the Scheduler window; button in the Add torrent window; text in traypanel.rs; button in the Download video window
 #. button: stop downloading the update
 	Cancel	Cancel
 #. text in errors.rs
@@ -1208,8 +1212,9 @@
 #. text in win32.rs
 #. Windows' Settings → Default apps: what Mister Download Manager is
 	Downloads files, videos and torrents	Downloads files, videos and torrents
-#. text in the tray icon's menu
+#. text in the tray icon's menu; text in traypanel.rs
 #. tray menu: a submenu of the downloads now running; choosing one shows its progress window
+#. the notification-area icon's panel (#1365): its title, over the downloads now running (also the tray menu's submenu)
 	Downloads in progress	Downloads in progress
 #. text in a dialog box
 #. {time} = a time of day (keep the braces as they are)
@@ -2466,6 +2471,9 @@
 	No day is ticked: the queue will not start	No day is ticked: the queue will not start
 #. message or event log entry in the main window
 	No download links were found in the clipboard. Copy a text with http, https, ftp or magnet links in it, and try again.	No download links were found in the clipboard. Copy a text with http, https, ftp or magnet links in it, and try again.
+#. text in traypanel.rs
+#. the notification-area icon's panel (#1365) when no download is running
+	No downloads are running	No downloads are running
 #. message or event log entry in the main window
 #. title in the empty download list (this category or queue has no downloads)
 	No downloads here	No downloads here
@@ -2693,7 +2701,8 @@
 	Open in browser	Open in browser
 #. checkbox in the Add torrent window
 	Open magnet links and .torrent files with Mister Download Manager	Open magnet links and .torrent files with Mister Download Manager
-#. text in the tray icon's menu
+#. text in the tray icon's menu; text in traypanel.rs
+#. the notification-area icon's panel (#1365): its button that opens the main window (also the tray menu's first item)
 	Open Mister Download Manager	Open Mister Download Manager
 #. text in extension.rs
 #. step 2 of turning on the Safari extension; Cmd is the Command key
@@ -2794,7 +2803,7 @@
 #. text in the Link grabber window
 #. Link grabber: where links came from: the clipboard (pasted with Ctrl+V)
 	Pasted	Pasted
-#. text in a download's progress window; text in remote.rs
+#. text in a download's progress window; text in remote.rs; text in traypanel.rs
 #. verb: pause the download
 #. remote control page (on a phone): button: pause a download
 	Pause	Pause
@@ -3016,7 +3025,7 @@
 #. text in a download's Properties window
 #. {result} = how the last attempt ended (a status or an error message)
 	Result: {result}	Result: {result}
-#. text in a download's progress window
+#. text in a download's progress window; text in traypanel.rs
 #. verb: continue the download
 	Resume	Resume
 #. text in a download's progress window
@@ -3258,6 +3267,9 @@
 	Show download complete dialog	Show download complete dialog
 #. checkbox in the Options window
 	Show download progress dialog when a download starts	Show download progress dialog when a download starts
+#. text in the tray icon's menu
+#. tray menu: a check item; ticked, a click on the icon shows a small panel with the downloads now running (#1365); unticked, the click opens the main window
+	Show downloads on click	Show downloads on click
 #. button in a dialog box
 #. button: shows these downloads in MDM's list, selected
 	Show in list	Show in list
@@ -4682,7 +4694,7 @@
 #. text in the Options window
 #. Options → Remote → Pair a device: done; {device} = the name it was given
 	{device} is paired. It can control MDM now.	{device} is paired. It can control MDM now.
-#. text in remote.rs
+#. text in remote.rs; text in traypanel.rs
 #. remote control page (on a phone): progress; {done} and {size} are sizes ("1.2 MB of 7.5 MB")
 #. {size} = a file size such as "4.2 MB" (keep the braces as they are)
 	{done} of {size}	{done} of {size}
