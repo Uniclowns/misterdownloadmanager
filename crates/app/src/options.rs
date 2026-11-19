@@ -2407,7 +2407,7 @@ impl OptionsDialog {
         )
         .on_hover_text(crate::i18n::t(
             // i18n: Options → Sites Logins → Use my yt-dlp config file: its tooltip
-            "yt-dlp also reads the config file in its user folder (on Windows %APPDATA%\\yt-dlp\\config.txt). Most of what MDM chooses, the folder, the name and the quality, still wins, but options there that skip or filter videos apply too.",
+            "yt-dlp also reads its own config files (on Windows %APPDATA%\\yt-dlp\\config.txt, on Linux and macOS ~/.config/yt-dlp/config). Most of what MDM chooses, the folder, the name and the quality, still wins, but options there that skip or filter videos apply too.",
         ));
     }
 

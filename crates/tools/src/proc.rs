@@ -1116,8 +1116,10 @@ pub fn set_user_config(on: bool) {
 /// as `native` would keep it from ffmpeg), no download archive (it skips a look-up of a video
 /// once downloaded), no forced overwrites (it implies `--no-continue`, deleting the engine's
 /// streams), the default fix-ups, and no marking as watched (`--mark-watched` would mark every
-/// look-up, the quality menu's included, not only what is downloaded). Nothing when the config
-/// isn't read (`--ignore-config`).
+/// look-up, the quality menu's included, not only what is downloaded), and part files (yt-dlp
+/// reuses the streams the engine downloaded only with `--continue` and `--part`, so `--no-part`
+/// would fetch every one again into a doubled file). Nothing when the config isn't read
+/// (`--ignore-config`).
 fn config_args(on: bool) -> &'static [&'static str] {
     if on {
         &[
@@ -1128,6 +1130,7 @@ fn config_args(on: bool) -> &'static [&'static str] {
             "--fixup",
             "detect_or_warn",
             "--no-mark-watched",
+            "--part",
         ]
     } else {
         &[]
@@ -2473,6 +2476,7 @@ foreach ($d in $env:PATH.Split(';')) {
                 "--fixup",
                 "detect_or_warn",
                 "--no-mark-watched",
+                "--part",
             ]
         );
     }

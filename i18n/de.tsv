@@ -5972,7 +5972,7 @@
 #. text in the Options window
 #. Options → Sites Logins → Use my yt-dlp config file: its tooltip
 #, machine
-	yt-dlp also reads the config file in its user folder (on Windows %APPDATA%\\yt-dlp\\config.txt). Most of what MDM chooses, the folder, the name and the quality, still wins, but options there that skip or filter videos apply too.	yt-dlp liest zusätzlich die Konfigurationsdatei in seinem Benutzerordner (unter Windows %APPDATA%\\yt-dlp\\config.txt). Das meiste, was MDM festlegt (Ordner, Name und Qualität), hat weiterhin Vorrang, aber Optionen darin, die Videos überspringen oder filtern, gelten ebenfalls.
+	yt-dlp also reads its own config files (on Windows %APPDATA%\\yt-dlp\\config.txt, on Linux and macOS ~/.config/yt-dlp/config). Most of what MDM chooses, the folder, the name and the quality, still wins, but options there that skip or filter videos apply too.	yt-dlp liest zusätzlich seine eigenen Konfigurationsdateien (unter Windows %APPDATA%\\yt-dlp\\config.txt, unter Linux und macOS ~/.config/yt-dlp/config). Das meiste, was MDM festlegt (Ordner, Name und Qualität), hat weiterhin Vorrang, aber Optionen darin, die Videos überspringen oder filtern, gelten ebenfalls.
 #. text in the Download video window
 #. the Download video window: yt-dlp couldn't read the cookies of the browser chosen in Options (Chrome, Edge...), which holds them while it runs; {browser} = its name
 #, machine
