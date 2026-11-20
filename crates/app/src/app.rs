@@ -1468,6 +1468,9 @@ pub struct App {
     cnl: crate::cnl::Cnl,
     /// Free space where downloads go, and when it was last looked up (`free_space`).
     free_space: std::sync::Arc<std::sync::Mutex<(Option<Instant>, Option<u64>)>>,
+    /// Whether finished downloads' files are still where they were saved, for the browser
+    /// popup's list and the automation API's (#1496).
+    on_disk: crate::recent::OnDisk,
     /// Options → Proxy / Socks → Network adapter (#35): the watch, the route seen last frame, and
     /// the downloads stopped because it changed, to start again when it allows.
     netwatch: crate::netwatch::NetWatch,
@@ -1999,12 +2002,15 @@ impl App {
                 crate::win32::update_run_at_startup();
             }
         }
+        // Linux and macOS: an entry naming a program that's gone (this one's path before an
+        // upgrade replaced it while it ran, an AppImage moved) is written again first; then the
+        // option says whether the entry is on and starts this very program (#1484).
         #[cfg(unix)]
         {
-            settings.launch_on_startup = crate::unix::run_at_startup();
-            if settings.launch_on_startup && mdm_ipc::portable_dir().is_none() {
+            if mdm_ipc::portable_dir().is_none() {
                 crate::unix::update_run_at_startup();
             }
+            settings.launch_on_startup = crate::unix::run_at_startup();
         }
         // Browser integration: a registration that leads nowhere is repaired (#818); Linux and
         // macOS, which have no installer step, register with each browser here too.
@@ -2213,6 +2219,7 @@ impl App {
             remote_torrents: Vec::new(),
             cnl,
             free_space: Default::default(),
+            on_disk: Default::default(),
             netwatch: Default::default(),
             debrid: Default::default(),
             debrid_from: 0,
@@ -3211,14 +3218,21 @@ impl App {
     /// command does. Unknown names do nothing.
     fn show_named(&mut self, name: &str, ctx: &egui::Context) {
         // MDM_CRASH_TEST=1 only (crash.rs): a stall in a later tick of the window hidden in the
-        // notification area (#1126), which this hides rather than shows.
+        // notification area (#1126), which this hides rather than shows; or of the window
+        // minimized to the taskbar (#1481), which this minimizes (as its title bar's button does).
         if crate::crash::testing()
             && let Some(test) = name.strip_prefix("crash-test:")
-            && test.starts_with("hidden-")
         {
-            self.hide_to_tray(ctx);
-            crate::crash::test(test);
-            return;
+            if test.starts_with("hidden-") {
+                self.hide_to_tray(ctx);
+                crate::crash::test(test);
+                return;
+            }
+            if test.starts_with("minimized-") {
+                crate::dialogs::minimize(ctx, self.main_hwnd);
+                crate::crash::test(test);
+                return;
+            }
         }
         self.show_window(ctx);
         let first = self.items.first().map(|i| i.id);
@@ -7115,13 +7129,25 @@ impl App {
     /// A paired device's command (the remote control, #141) is answered while Options → Remote
     /// is on, whatever the automation API's switch: it may list, add and act, nothing else.
     fn answer(&mut self, cmd: &ipc::Command, ctx: &egui::Context) -> String {
-        use ipc::api::{ApiAnswer, DownloadInfo, ErrorAnswer, ListAnswer, line};
+        use ipc::api::{ApiAnswer, ErrorAnswer, ListAnswer, line};
         // The browser's quality menu (its native host asks): whatever the automation API's
         // switch, and never for a paired device.
         if !cmd.remote
             && (cmd.video_lookup.is_some() || cmd.video_poll.is_some() || cmd.video_pick.is_some())
         {
             return line(&self.quality_menu(cmd));
+        }
+        // The browser popup's list and its buttons (#1496, its native host asks): whatever the
+        // automation API's switch, and never for a paired device.
+        if !cmd.remote
+            && let Some(ask) = &cmd.recent
+        {
+            return line(&self.recent_answer(ask));
+        }
+        if !cmd.remote
+            && let Some(act) = &cmd.recent_act
+        {
+            return line(&self.recent_act(act));
         }
         if cmd.pair && !cmd.remote {
             return self.pair_answer();
@@ -7184,33 +7210,14 @@ impl App {
         }
         match cmd.query.as_deref() {
             Some("list") => {
+                // A paired device sees no folder of the computer's (nor whether a file is
+                // there), nor a password in an address.
                 let downloads = self
                     .items
                     .iter()
-                    .map(|i| DownloadInfo {
-                        id: i.id,
-                        file: i.file_name.clone(),
-                        // A paired device sees no folder of the computer's, nor a password in
-                        // an address.
-                        url: if cmd.remote {
-                            let mut u = i.url.clone();
-                            let _ = u.set_password(None);
-                            u.to_string()
-                        } else {
-                            i.url.to_string()
-                        },
-                        path: if cmd.remote {
-                            String::new()
-                        } else {
-                            i.dest.to_string_lossy().into_owned()
-                        },
-                        status: format!("{:?}", i.status),
-                        size: i.size,
-                        downloaded: i.downloaded,
-                        speed: if i.live.is_some() { i.rate() as u64 } else { 0 },
-                        added: i.added.clone(),
-                        category: i.category.key().into_owned(),
-                        error: i.error.clone().filter(|_| i.status == Status::Error),
+                    .map(|i| {
+                        let seen = (!cmd.remote).then(|| self.on_disk.last(&i.dest)).flatten();
+                        crate::recent::info(i, cmd.remote, seen)
                     })
                     .collect();
                 let speed: f64 = self
@@ -7247,6 +7254,141 @@ impl App {
                 error: format!("unknown query {other:?}"),
                 code: None,
             }),
+        }
+    }
+
+    /// The browser popup's list (#1496): the newest downloads for its search and filter, whether
+    /// the finished ones answered still have their file (looked at off this thread, a few
+    /// seconds old at most: [`crate::recent::OnDisk`]), and the system's icons of their types
+    /// the popup lacks (looked up off this thread too: one missing now comes with a later
+    /// answer). Within a native message's room ([`ipc::api::RECENT_BUDGET`]).
+    fn recent_answer(&mut self, ask: &ipc::RecentAsk) -> ipc::api::RecentAnswer {
+        let rows = self
+            .items
+            .iter()
+            .map(|i| ipc::api::DownloadInfo {
+                icon: Some(crate::recent::icon_key(i)),
+                ..crate::recent::info(i, false, None)
+            })
+            .collect();
+        let speed: f64 = self
+            .items
+            .iter()
+            .filter(|i| i.live.is_some())
+            .map(|i| i.rate())
+            .sum();
+        let mut answer = ipc::api::RecentAnswer::of(rows, ask, speed as u64);
+        let finished: Vec<(usize, PathBuf)> = answer
+            .downloads
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.status == "Complete")
+            .filter_map(|(at, d)| {
+                let i = self.items.iter().find(|i| i.id == d.id)?;
+                Some((at, i.dest.clone()))
+            })
+            .collect();
+        let paths: Vec<&std::path::Path> = finished.iter().map(|(_, p)| p.as_path()).collect();
+        let seen = self.on_disk.there_all(&paths, &self.rt);
+        for ((at, _), there) in finished.iter().zip(seen) {
+            answer.downloads[*at].exists = there;
+        }
+        let px = ask.px.clamp(16, 64);
+        let keys: std::collections::BTreeSet<String> = answer
+            .downloads
+            .iter()
+            .filter_map(|d| d.icon.clone())
+            .filter(|k| !ask.have.contains(k))
+            .collect();
+        for key in keys {
+            let what = crate::recent::icon_what(&key);
+            if let Some(url) = crate::fileicons::data_url(&what, px) {
+                answer.icons.insert(key, url);
+            }
+        }
+        answer.share = crate::fileclip::CAN_SHARE;
+        answer.fit(ipc::api::RECENT_BUDGET);
+        answer
+    }
+
+    /// One of the browser popup's buttons on a download (#1496). Opening the file, its folder,
+    /// the share sheet and a download started again pass on the right to come to the front
+    /// that the browser's native host gave MDM, so what opens isn't left behind the browser.
+    fn recent_act(&mut self, a: &ipc::RecentAct) -> ipc::api::RecentActAnswer {
+        use crate::fileclip::Refused;
+        use ipc::api::{RecentActAnswer as Answer, recent_why as why};
+        if a.act == "clear-done" {
+            // Every finished download off the list, their files kept (as Remove).
+            let ids: Vec<u64> = self
+                .items
+                .iter()
+                .filter(|i| i.status == Status::Complete && i.live.is_none())
+                .map(|i| i.id)
+                .collect();
+            return match self.act("remove", &ids) {
+                Ok(_) => Answer::done(),
+                Err(_) => Answer::not(why::FAILED),
+            };
+        }
+        let Some(item) = self.items.iter().find(|i| i.id == a.id) else {
+            return Answer::not(why::GONE);
+        };
+        let (dest, moved_away) = (item.dest.clone(), item.moved_away);
+        let (complete, live) = (item.status == Status::Complete, item.live.is_some());
+        // As last seen (the popup asked a moment ago); looked at now if never.
+        let missing = || match self.on_disk.last(&dest) {
+            Some(there) => !there,
+            None => !dest.exists(),
+        };
+        let handed = |done: Result<(), Refused>| match done {
+            Ok(()) => Answer::done(),
+            Err(Refused::Unsupported) => Answer::not(why::UNSUPPORTED),
+            Err(Refused::Failed(_)) => Answer::not(why::FAILED),
+        };
+        match a.act.as_str() {
+            "open" | "copy-file" | "share" if !complete => Answer::not(why::CANT),
+            "share" if !crate::fileclip::CAN_SHARE => Answer::not(why::UNSUPPORTED),
+            "open" | "copy-file" | "share" if missing() => Answer::not(why::MISSING),
+            // An off-screen run (the tests) opens nothing on the person's screen: it logs.
+            "open" | "folder" if crate::offscreen() => {
+                tracing::info!("{} (off-screen, not opened): {}", a.act, dest.display());
+                Answer::done()
+            }
+            "open" => {
+                crate::recent::pass_foreground();
+                crate::dialogs::open_download_in_front(&dest, moved_away);
+                Answer::done()
+            }
+            "folder" => {
+                crate::recent::pass_foreground();
+                crate::dialogs::show_download_in_folder(&dest, moved_away);
+                Answer::done()
+            }
+            "copy-file" => handed(crate::fileclip::copy_file(&dest)),
+            "share" => {
+                crate::recent::pass_foreground();
+                handed(crate::fileclip::share(&dest))
+            }
+            "redownload" if live => Answer::not(why::RUNNING),
+            "redownload" if !self.can_redownload(a.id) => Answer::not(why::CANT),
+            "redownload" => {
+                crate::recent::pass_foreground();
+                self.redownload(a.id);
+                Answer::done()
+            }
+            act @ ("pause" | "resume" | "remove" | "delete") => {
+                let action = if act == "resume" { "start" } else { act };
+                match self.act(action, &[a.id]) {
+                    Ok(r) if r.done.contains(&a.id) => Answer::done(),
+                    Ok(r) => match r.skipped.first().map(|s| s.why.as_str()) {
+                        Some("no such download") => Answer::not(why::GONE),
+                        Some(w) if w.starts_with("running") => Answer::not(why::RUNNING),
+                        _ => Answer::not(why::CANT),
+                    },
+                    Err(_) => Answer::not(why::UNKNOWN),
+                }
+            }
+            _ => Answer::not(why::UNKNOWN),
         }
     }
 
@@ -12651,6 +12793,21 @@ fn alt_alone_released(events: &[egui::Event], down: &mut bool, alone: &mut bool)
     released
 }
 
+/// Whether the main window is minimized now (to the taskbar, the Dock, the window list). egui's
+/// window state says so on Windows and X11, read afresh each frame. macOS's isn't read again
+/// while running (egui#3494) and keeps the last minimize MDM asked for, even after a click on the
+/// Dock brought the window back: AppKit is asked instead. Wayland tells no program its window is
+/// minimized (xdg-shell has no such state): false there, as egui says.
+fn main_minimized(ctx: &egui::Context) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = ctx;
+        crate::unix::macos_window_miniaturized(crate::MAIN_TITLE).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    ctx.input(|i| i.viewport().minimized == Some(true))
+}
+
 impl eframe::App for App {
     /// What comes in from outside (a second launch, the browser's native host, the automation
     /// API) is handled here, which runs at every frame: `ui` doesn't run while the main window
@@ -12676,9 +12833,12 @@ impl App {
         // The freeze watchdog times this as it times `ui` (crash.rs): a command or the clock
         // that hangs is reported too, minimized or not (#202).
         crate::crash::logic_begin();
-        // Whether a stall now could be seen: every window of MDM's hidden (the main window in
-        // the notification area, no other window open) is felt by nobody (#1126).
-        crate::crash::hidden(self.hidden && ctx.input(|i| i.raw.viewports.len() <= 1));
+        // Whether a stall now could be seen: every window of MDM's out of sight (the main window
+        // in the notification area or minimized to the taskbar, no other window open) is felt by
+        // nobody (#1126, #1481).
+        let windows = ctx.input(|i| i.raw.viewports.len());
+        let minimized = !self.hidden && windows <= 1 && main_minimized(ctx);
+        crate::crash::hidden(crate::crash::out_of_sight(self.hidden, minimized, windows));
         crate::crash::armed();
         crate::crash::step(crate::crash::Step::Commands);
         let mut handled = false;
@@ -12714,6 +12874,9 @@ impl App {
         // runs no `ui`, and the queues, the Scheduler's starts and stops, the download limits,
         // the kill switch, saving the list, the clipboard monitor, the update check, the tray and
         // the taskbar's progress all stood still until the window was restored.
+        if self.settings.follows_system() {
+            crate::pacfetch::watch_system(&self.rt);
+        }
         crate::settings::share_proxy(self.settings.proxy());
         crate::settings::share_dns(self.settings.dns());
         crate::settings::share_video_settings(&self.settings);

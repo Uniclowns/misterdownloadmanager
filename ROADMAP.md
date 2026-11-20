@@ -574,6 +574,20 @@ These ship in the next version.
   another program...** takes any other 7-Zip command line program (a portable copy), checked
   before it is used
   ([#1525](https://github.com/anefzaoui/misterdownloadmanager/issues/1525))
+- ✅ The proxy reaches yt-dlp: Options' automatic configuration script is asked about the
+  video's page for every yt-dlp run, "Use system settings" follows Windows' setup script (a
+  proxy program's PAC mode), and a manual proxy chosen with no protocol ticked gets http and
+  https ticked ([#1448](https://github.com/anefzaoui/misterdownloadmanager/issues/1448))
+- ✅ A video download, look-up, playlist or gallery finishes when yt-dlp (or gallery-dl) does:
+  a program it started that still held its output open kept the download running at its last
+  progress ([#1521](https://github.com/anefzaoui/misterdownloadmanager/issues/1521))
+- ✅ The browser add-on's popup lists MDM's newest downloads, live while it is open: the system's
+  own icon for each file type, its progress, speed and time left, search and filters (running,
+  done, failed), and on each one **Open**, **Show in folder**, **Pause** / **Resume**, **Copy
+  file** (to paste the file itself into a folder, a chat or an upload box), **Share** (Windows'
+  and macOS's share sheet), **Copy link**, **Download again**, **Remove from list** and **Delete
+  file**; the toolbar button counts the running ones. The popup has tabs now: **Downloads**,
+  **This page** and **Settings** ([#1496](https://github.com/anefzaoui/misterdownloadmanager/issues/1496))
 - ✅ macOS crash and freeze reports: the release's symbols are found (by the program's name, or
   by its id when the report has no name for it) and carry unwinding tables and inlined calls, so
   no frame is skipped; a freeze says how much the window's thread ran and how many pages MDM read
@@ -1678,6 +1692,14 @@ These ship in the next version.
   pieces') no longer fail now and then on a busy computer: the test server times such a link from
   its first request, not from the look-up that gave it, so a slow start can't kill it before the
   download has asked for it
+- ✅ Linux and macOS: **Launch Mister Download Manager on startup** is ticked only when the startup
+  entry is on and starts this copy; an entry naming a program that's gone (moved, or replaced by an
+  upgrade while MDM ran) is written again as MDM starts
+  ([#1484](https://github.com/anefzaoui/misterdownloadmanager/issues/1484))
+- ✅ No more **The window stopped responding** report while MDM's window is minimized to the
+  taskbar and its thread waits on the computer: as in the notification area, logged, and reported
+  only if it lasts past a minute, if MDM's thread is busy, or if MDM is asked for something
+  meanwhile and doesn't answer ([#1481](https://github.com/anefzaoui/misterdownloadmanager/issues/1481))
 
 ## Being worked on
 
@@ -1697,6 +1719,10 @@ These ship in a later version, when they're ready.
 
 ### Bugs being looked into
 
+- 🔍 The system's automatic proxy settings beyond Windows' setup script: Windows'
+  "Automatically detect settings" (WPAD), and the automatic configuration scripts of Linux
+  desktops and macOS, aren't read yet
+  ([#1448](https://github.com/anefzaoui/misterdownloadmanager/issues/1448))
 - 🔍 Linux on native Wayland: while the main window is out of sight (on another workspace), the
   other windows (Download File Info, Download complete, the dialogs) don't open or don't answer
   until it is shown again, as the compositor doesn't let a window it isn't showing redraw and
