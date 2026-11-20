@@ -1523,6 +1523,9 @@
 #. button in the Find window
 #. verb: button that starts the search
 	Find	بحث
+#. Options → Archives: button, shown once a 7-Zip program was chosen with "Use another program...": go back to the 7-Zip MDM finds on the computer by itself
+#, machine
+	Find 7-Zip automatically	البحث عن 7-Zip تلقائيًا
 #. what a keyboard shortcut does in the Help menu's windows (About, updates, shortcuts, Tell a friend)
 	Find a download	البحث عن تنزيل
 #. message or event log entry in the main window; window title in the Find window
@@ -3772,6 +3775,9 @@
 #. text in the Batch download window
 #. why Batch download's OK is greyed
 	That is more than 100,000 files: make the range smaller	هذا أكثر من 100,000 ملف: اجعل النطاق أصغر
+#. Options → Archives, in red: the program chosen with "Use another program..." isn't 7-Zip's command line program (an archiver's window was picked instead); 7z.exe is that program's file name
+#, machine
+	That isn't 7-Zip's command line program (7z.exe).	هذا ليس برنامج سطر الأوامر الخاص بـ 7-Zip (‏7z.exe).
 #. text in torrent downloads
 #. an error: the copy of the .torrent file the app keeps is missing
 	the .torrent file kept for it is gone	ملف التورنت المحفوظ له مفقود

@@ -1931,6 +1931,9 @@
 #. verb: button that starts the search
 #, machine
 	Find	Suchen
+#. Options → Archives: button, shown once a 7-Zip program was chosen with "Use another program...": go back to the 7-Zip MDM finds on the computer by itself
+#, machine
+	Find 7-Zip automatically	7-Zip automatisch suchen
 #. what a keyboard shortcut does in the Help menu's windows (About, updates, shortcuts, Tell a friend)
 #, machine
 	Find a download	Einen Download suchen
@@ -4799,6 +4802,9 @@
 #. why Batch download's OK is greyed
 #, machine
 	That is more than 100,000 files: make the range smaller	Das sind mehr als 100.000 Dateien: Verkleinern Sie den Bereich
+#. Options → Archives, in red: the program chosen with "Use another program..." isn't 7-Zip's command line program (an archiver's window was picked instead); 7z.exe is that program's file name
+#, machine
+	That isn't 7-Zip's command line program (7z.exe).	Das ist nicht das Kommandozeilenprogramm von 7-Zip (7z.exe).
 #. text in torrent downloads
 #. an error: the copy of the .torrent file the app keeps is missing
 #, machine

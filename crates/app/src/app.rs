@@ -12717,6 +12717,7 @@ impl App {
         crate::settings::share_proxy(self.settings.proxy());
         crate::settings::share_dns(self.settings.dns());
         crate::settings::share_video_settings(&self.settings);
+        crate::extractq::share_chosen_7zip(&self.settings.seven_zip_path);
         if !self.headless {
             crate::crash::step(crate::crash::Step::Accessibility);
             self.follow_assistive_technology(ctx);

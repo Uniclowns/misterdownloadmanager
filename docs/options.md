@@ -155,7 +155,8 @@ Archives (zip, 7z, rar, tar, gz, xz), and [Link grabber](link-grabber.md).
 - **Extract archives when their download completes** (off by default) — every archive downloaded, as soon as it (or a split archive's last volume) is in. A Link grabber package has its own **Extract when done**.
 - **Then move the archives to the Recycle Bin** (off by default; the Trash on macOS and Linux) — after a successful extraction only. This is also the default of a new package's **Delete archives after extracting**.
 - **What an archive holds goes** — into a folder named after it when it holds several things (the default), always into such a folder, or straight into the archive's folder.
-- Whether **7-Zip** was found: 7z and RAR archives need it, unless they are extracted in place with HatchZip.
+- Whether **7-Zip** was found: 7z and RAR archives need it, unless they are extracted in place with HatchZip. MDM also finds the 7-Zip inside PeaZip and NanaZip's command line.
+- **Use another program...** — choose the 7-Zip command line program yourself (`7z.exe` of a portable copy or of another archiver); **Find 7-Zip automatically** goes back to the one MDM finds. See [Extracting archives](link-grabber.md).
 - **Extract in place with HatchZip** (off by default; greyed out when HatchZip isn't installed) — the archive is removed while its files come out, so only they need room. See [Extracting archives](link-grabber.md#in-place-with-hatchzip).
 - **Archive passwords...** — the passwords tried on an encrypted archive before MDM asks, one per line; the one that fits moves to the top. A package's own password is never added by itself. See [Archive passwords](link-grabber.md#archive-passwords).
 - **Look links up when they arrive (name, size, online)** — Link grabber asks each server about its file (on by default).

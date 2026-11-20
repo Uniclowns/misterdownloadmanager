@@ -82,6 +82,10 @@ struct DnsEdit {
 /// A test's answer line and whether it worked, filled in by its thread.
 type TestSlot = std::sync::Arc<std::sync::Mutex<Option<(String, bool)>>>;
 
+/// Archives → Use another program... (#1525): the program picked, and whether it answered as
+/// 7-Zip's command line, once it has.
+type Checked7zip = std::sync::Arc<std::sync::Mutex<Option<(std::path::PathBuf, bool)>>>;
+
 impl DnsEdit {
     fn from(s: &Settings) -> Self {
         DnsEdit {
@@ -216,8 +220,15 @@ pub struct OptionsDialog {
     restore_ask: Option<crate::dialogs::Confirm>,
     /// Connection caps the engine learned, shown as "(auto)" rows under Exceptions.
     learned: Vec<(String, u32)>,
-    /// 7-Zip's program (Archives: RAR goes through it), looked for when the window opens.
+    /// 7-Zip's program (Archives: RAR goes through it): the one chosen there, else the one
+    /// looked for when the window opens.
     seven_zip: Option<std::path::PathBuf>,
+    /// Archives → Use another program... (#1525): the program picked, being asked beside the
+    /// window whether it is 7-Zip's command line (`extractq::is_7zip`), and its answer.
+    checking_7zip: Option<Checked7zip>,
+    /// The program last picked there didn't answer as 7-Zip: said in place of the line that
+    /// names the program, until another is picked.
+    not_7zip: bool,
     /// HatchZip's command line program (Archives: extract in place), looked for with 7-Zip.
     hatch_zip: Option<std::path::PathBuf>,
     /// Proxy / Socks → Network adapter (#35): the computer's adapters, read again every 2 s.
@@ -335,7 +346,9 @@ impl OptionsDialog {
             cat_edit: None,
             restore_ask: None,
             learned,
-            seven_zip: crate::extractq::seven_zip(),
+            seven_zip: crate::extractq::seven_zip_for(&settings.seven_zip_path),
+            checking_7zip: None,
+            not_7zip: false,
             hatch_zip: crate::extractq::hatch_zip(),
             adapters: None,
             remote: None,
@@ -2494,7 +2507,25 @@ impl OptionsDialog {
         );
         // HatchZip only when asked for (in place); without it, 7z and RAR need 7-Zip.
         let hatch = self.hatch_zip.as_ref().filter(|_| s.extract_in_place);
+        // The program picked with Use another program..., once it has answered (#1525).
+        let checked = self
+            .checking_7zip
+            .as_ref()
+            .and_then(|slot| slot.lock().unwrap().take());
+        if let Some((exe, is_7zip)) = checked {
+            self.checking_7zip = None;
+            self.not_7zip = !is_7zip;
+            if is_7zip {
+                s.seven_zip_path = exe.display().to_string();
+                self.seven_zip = Some(exe);
+            }
+        }
         let (rar, ink) = match (hatch, &self.seven_zip) {
+            _ if self.not_7zip => (
+                // i18n: Options → Archives, in red: the program chosen with "Use another program..." isn't 7-Zip's command line program (an archiver's window was picked instead); 7z.exe is that program's file name
+                crate::i18n::t("That isn't 7-Zip's command line program (7z.exe).").to_owned(),
+                winui::ERROR(),
+            ),
             (Some(path), _) => (
                 crate::i18n::fmt(
                     // i18n: Options → Archives, when Extract in place with HatchZip (a program's name) is on: {path} is where its program is
@@ -2564,15 +2595,65 @@ impl OptionsDialog {
         {
             self.sub = Some(Sub::Passwords(s.archive_passwords.clone()));
         }
+        // Another 7-Zip than the one found (PeaZip's own, a portable copy), or back to the one
+        // found (#1525), at the row's end.
+        let own = !s.seven_zip_path.is_empty();
+        let tool_label = if own {
+            // i18n: Options → Archives: button, shown once a 7-Zip program was chosen with "Use another program...": go back to the 7-Zip MDM finds on the computer by itself
+            crate::i18n::mark("Find 7-Zip automatically")
+        } else {
+            // i18n: Options → Archives: button: pick the 7-Zip command line program to extract 7z and RAR archives with (PeaZip's own 7z.exe, a portable copy), instead of the one MDM finds
+            crate::i18n::mark("Use another program...")
+        };
+        let (tool_x, tool_w) =
+            winui::buttons_to_right(&p, 394.0, 0.0, &[(tool_label, 150.0)], 200.0)[0];
+        if winui::button_light(
+            ui,
+            r(o, tool_x, 304.0, tool_w, 21.0),
+            tool_label,
+            if self.checking_7zip.is_some() {
+                ButtonKind::Disabled
+            } else {
+                ButtonKind::Normal
+            },
+            false,
+        )
+        .clicked()
+        {
+            self.not_7zip = false;
+            if own {
+                s.seven_zip_path.clear();
+                self.seven_zip = crate::extractq::seven_zip_for("");
+            } else {
+                // i18n: file picker title; {name} = the program to choose (yt-dlp, ffmpeg, 7-Zip)
+                let title = crate::i18n::fmt(crate::i18n::t("Choose {name}"), &[("name", "7-Zip")]);
+                winui::start_pick(ui.ctx(), "options-7zip", move || {
+                    crate::winui::file_dialog(&title).pick_file()
+                });
+            }
+        }
+        if let Some(exe) = winui::picked(ui.ctx(), "options-7zip") {
+            let slot: Checked7zip = Default::default();
+            let (out, wake) = (slot.clone(), ui.ctx().clone());
+            std::thread::spawn(move || {
+                let is_7zip = crate::extractq::is_7zip(&exe);
+                *out.lock().unwrap() = Some((exe, is_7zip));
+                wake.request_repaint();
+            });
+            self.checking_7zip = Some(slot);
+        }
         let saved = s.archive_password_list().len() as u64;
         if saved > 0 {
-            text(
+            winui::fit(
+                ui,
                 &p,
                 o.x + pw_x + pw_w + 10.0,
                 o.y + 320.0,
                 // i18n: Options → Archives: beside the Archive passwords button: how many are saved
                 &crate::i18n::tn(saved, "{n} saved", "{n} saved"),
                 LIGHT_DISABLED(),
+                o.x + tool_x - 8.0,
+                "opt-passwords-saved",
             );
         }
         // i18n: Options → Archives: group box title
