@@ -50,6 +50,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $out = "$env:RUNNER_TEMP\shots"
+          New-Item -ItemType Directory -Force $out | Out-Null
           $bin = "$env:RUNNER_TEMP\bin-after"; $exe = "$bin\misterdownloadmanager.exe"
           $names = @{ en = "Downloads in progress"; de = "Aktive Downloads"; ar = "التنزيلات الجارية" }
           foreach ($lang in "en", "de", "ar") {
