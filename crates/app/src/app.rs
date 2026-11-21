@@ -3301,14 +3301,33 @@ impl App {
             }
             // Off-screen test copies: the tray icon's downloads panel (#1365's shots and checks),
             // as a click on the icon opens it, here beside the main window (a posted click has
-            // no icon to land on).
+            // no icon to land on); `tray-panel:paused` with its first download paused from it,
+            // `tray-panel:idle` with every download stopped (nothing running).
             "tray-panel" if crate::offscreen() => {
                 let at = ctx
                     .input(|i| i.viewport().outer_rect)
                     .map_or(egui::pos2(600.0, 400.0), |r| {
                         r.min + egui::vec2(600.0, 400.0)
                     });
-                self.tray_panel = Some(crate::traypanel::Panel::new(at));
+                let mut panel = crate::traypanel::Panel::new(Some(at));
+                let running: Vec<u64> = self
+                    .items
+                    .iter()
+                    .filter(|i| i.live.is_some())
+                    .map(|i| i.id)
+                    .collect();
+                match tab {
+                    "paused" => {
+                        if let Some(id) = running.first() {
+                            panel.paused(*id);
+                            self.stop_by_hand(*id);
+                        }
+                    }
+                    "idle" => running.iter().for_each(|id| self.stop_by_hand(*id)),
+                    _ => {}
+                }
+                self.tray_panel = Some(panel);
+                ctx.request_ui_pass(egui::ViewportId::ROOT);
             }
             // The main window minimized, not to the tray (tests of #162).
             "minimized" => ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)),
@@ -4387,6 +4406,13 @@ impl App {
         }
     }
 
+    /// A download's Cancel, in its progress window or the tray icon's panel (#1365): stopped
+    /// (a live recording killed, not saved: `stop`), and its progress window closed.
+    fn cancel_download(&mut self, id: u64) {
+        self.stop(id);
+        self.progress.retain(|p| p.id != id);
+    }
+
     /// The user's Stop (or Pause): it stays stopped, even in a queue that is running (#341).
     fn stop_by_hand(&mut self, id: u64) {
         self.halt(id);
@@ -4893,19 +4919,12 @@ impl App {
             // it is, the window behaves as with no tray host.
             #[cfg(target_os = "linux")]
             {
-                self.tray_setup = Some(crate::tray::Setup::start(
-                    ctx,
-                    self.settings.speed_limit_on,
-                    self.settings.tray_panel,
-                ));
+                self.tray_setup =
+                    Some(crate::tray::Setup::start(ctx, self.settings.speed_limit_on));
             }
             #[cfg(not(target_os = "linux"))]
             {
-                self.tray = crate::tray::Tray::new(
-                    ctx,
-                    self.settings.speed_limit_on,
-                    self.settings.tray_panel,
-                );
+                self.tray = crate::tray::Tray::new(ctx, self.settings.speed_limit_on);
                 if self.tray.is_some() {
                     tracing::info!("tray icon shown");
                 }
@@ -4958,12 +4977,11 @@ impl App {
         if let (Some(t), Some(q)) = (&self.tray, self.queues.first()) {
             t.set_queue(q.running);
         }
-        if let Some(t) = &self.tray {
-            t.set_panel_on_click(self.settings.tray_panel);
-        }
         // The panel is drawn in the main window's pass, which a hidden or minimized main window
-        // runs only when asked (#1365).
-        if self.tray_panel.is_some() {
+        // runs only when asked (#1365): asked until the panel is on the screen. From then on
+        // eframe runs that pass with each of the panel's frames (its beat, an input on it), as it
+        // does for any window of ours that shows, so nothing is asked every frame.
+        if self.tray_panel.as_ref().is_some_and(|p| !p.up()) {
             ctx.request_ui_pass(egui::ViewportId::ROOT);
         }
         if let Some(t) = &self.tray {
@@ -5021,11 +5039,13 @@ impl App {
                     self.show_window(ctx);
                     continue;
                 }
-                // A click on the icon: the downloads panel there (#1365), or with "Show
-                // downloads on click" unticked the window shown or hidden, as before.
-                TrayCmd::Click(x, y) if self.settings.tray_panel => {
-                    let at = egui::pos2(x as f32, y as f32) / ctx.pixels_per_point();
-                    self.toggle_tray_panel(at);
+                // A click on the icon: the downloads panel there (#1365), or with Options' "Show
+                // downloads when the notification area icon is clicked" unticked the window shown
+                // or hidden, as before.
+                TrayCmd::Click(at) if self.settings.tray_panel => {
+                    let at =
+                        at.map(|(x, y)| egui::pos2(x as f32, y as f32) / ctx.pixels_per_point());
+                    self.toggle_tray_panel(at, ctx);
                     continue;
                 }
                 // The panel's double click: the window (the click before it opened the panel).
@@ -5034,14 +5054,6 @@ impl App {
                         self.tray_panel = None;
                         self.show_window(ctx);
                     }
-                    continue;
-                }
-                TrayCmd::PanelOnClick => {
-                    self.settings.tray_panel = !self.settings.tray_panel;
-                    if !self.settings.tray_panel {
-                        self.tray_panel = None;
-                    }
-                    self.dirty = true;
                     continue;
                 }
                 TrayCmd::Click(..) => {
@@ -11140,18 +11152,25 @@ impl App {
         }
     }
 
-    /// Tasks → Show drop target: the box while it's on; what is dropped on it is added as if
-    /// given on the command line (an address, a magnet link, a .torrent file).
-    /// A click on the tray icon with "Show downloads on click" ticked (#1365): the panel at `at`
-    /// (screen, points), or closed when it shows, or just closed by this very click (which took
-    /// the focus from it).
-    fn toggle_tray_panel(&mut self, at: egui::Pos2) {
+    /// A click on the tray icon with Options' "Show downloads when the notification area icon is
+    /// clicked" ticked (#1365): the panel at `at` (screen, points; None where the tray didn't
+    /// say), or closed when it shows, or just closed by this very click (which took the focus
+    /// from it).
+    fn toggle_tray_panel(&mut self, at: Option<egui::Pos2>, ctx: &egui::Context) {
         let just_closed = self
             .tray_panel_closed
             .take()
             .is_some_and(|t| t.elapsed() < Duration::from_millis(400));
         if self.tray_panel.take().is_none() && !just_closed {
             self.tray_panel = Some(crate::traypanel::Panel::new(at));
+            // macOS: hidden from the menu bar icon, the whole app is hidden and draws no window:
+            // unhidden for the panel, as for the windows a command opens (`tick`). The main
+            // window stays hidden.
+            #[cfg(target_os = "macos")]
+            if !crate::offscreen() {
+                crate::unix::macos_unhide_app();
+            }
+            ctx.request_ui_pass(egui::ViewportId::ROOT);
         }
     }
 
@@ -11170,17 +11189,19 @@ impl App {
                     }
                     self.stop_by_hand(id);
                 }
+                // Its progress window isn't opened ("Show download progress dialog" or not): it
+                // would take the focus and close the panel under the pointer.
                 Event::Resume(id) => {
                     if let Some(p) = &mut self.tray_panel {
                         p.forget(id);
                     }
-                    self.start(id, true);
+                    self.start(id, false);
                 }
                 Event::Cancel(id) => {
                     if let Some(p) = &mut self.tray_panel {
                         p.forget(id);
                     }
-                    self.stop(id);
+                    self.cancel_download(id);
                 }
                 Event::OpenMain => {
                     self.tray_panel = None;
@@ -11200,6 +11221,8 @@ impl App {
         }
     }
 
+    /// Tasks → Show drop target: the box while it's on; what is dropped on it is added as if
+    /// given on the command line (an address, a magnet link, a .torrent file).
     fn drop_target(&mut self, ctx: &egui::Context) {
         if !self.settings.drop_target {
             self.drop_target = None;
@@ -12923,10 +12946,7 @@ impl App {
                 progress::Action::None => {}
                 progress::Action::Pause => self.stop_by_hand(id),
                 progress::Action::Resume => self.start(id, true),
-                progress::Action::Cancel => {
-                    self.stop(id);
-                    self.progress.retain(|p| p.id != id);
-                }
+                progress::Action::Cancel => self.cancel_download(id),
                 progress::Action::Rename(name) => {
                     if let Some(item) = self.item(id) {
                         item.rename_on_complete = name;

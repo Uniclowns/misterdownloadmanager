@@ -1,23 +1,24 @@
 //! The notification-area icon's panel (#1365): a click on the icon shows, over it, what is
 //! downloading (each download's name, its progress bar, how much has come of how much, its speed
-//! and time left) with Pause/Resume and Cancel, and a button that opens the main window. A double
-//! click on the icon opens the window straight away, as the click did before; the icon's menu
-//! keeps "Show downloads on click", unticked for lists saved before the panel (the click keeps
-//! opening the window there), ticked for new ones (`Settings::tray_panel`).
+//! and time left) with the progress window's Pause/Resume (Stop and save for a live recording)
+//! and Cancel, and a button that opens the main window. A double click on the icon opens the
+//! window straight away. Options → General → "Show downloads when the notification area icon is
+//! clicked" (`Settings::tray_panel`): ticked for new lists, unticked for lists saved before the
+//! panel, where the click keeps showing or hiding the window.
 //!
-//! A borderless window of ours, as the drop target is ([`crate::chrome::popup_viewport`]): it
-//! takes the focus, and closes once it loses it (a click elsewhere), on Escape, or on a second
-//! click on the icon. Drawn with the progress window's controls and colours, in every theme.
+//! A borderless window of ours, as the drop target is ([`crate::chrome::popup_viewport`], one
+//! frame for both: [`crate::chrome::floating_frame`]). It takes the focus and closes once it loses
+//! it (a click elsewhere), on Escape, on its × or on another click on the icon. The × is the way
+//! that never needs the focus: a Wayland compositor may refuse a new window the focus (its
+//! focus-stealing prevention), and a window that never had it can't lose it.
 
 use std::time::Duration;
 
 use egui::{Pos2, Rect, Vec2, ViewportId, pos2, vec2};
+use mdm_tools::video::LiveState;
 
 use crate::model::{self, Item, Status};
 use crate::winui::{self, ButtonKind, r};
-
-/// The window's title (never shown: no title bar; Windows styles it by this name).
-const TITLE: &str = "mdm-tray-panel";
 
 /// The panel's width, and the heights of its parts, in points (English layout).
 const W: f32 = 380.0;
@@ -28,32 +29,52 @@ const NOTE: f32 = 30.0;
 const FOOT: f32 = 44.0;
 /// The most downloads listed; the others are counted under them.
 const MOST: usize = 5;
-/// Between the icon and the panel.
+/// Between the icon and the panel, and between the panel and the screen's edge.
 const GAP: f32 = 8.0;
-/// Pause/Resume and Cancel: their width in English (wider when a translation needs it).
-const BUTTON_W: f32 = 70.0;
+/// Where no work area is known (Linux, macOS) and the tray gave no place for the click: the
+/// height kept free at the top for a desktop's top bar (GNOME's, macOS's menu bar), whose tray
+/// sits at the top right.
+const TOP_BAR: f32 = 40.0;
+/// How often its figures are drawn again while it shows.
+pub const BEAT: Duration = Duration::from_millis(500);
+
+/// The panel's name: its window's title, which screen readers announce it by (never shown: it
+/// has no title bar; Windows finds it by this name to style it, `chrome::style_popup`).
+fn title() -> &'static str {
+    // i18n: the notification-area icon's panel (#1365): its title, over the downloads now running (also the tray menu's submenu)
+    crate::i18n::t("Downloads in progress")
+}
+
+/// Its viewport.
+fn viewport() -> ViewportId {
+    ViewportId::from_hash_of("tray-panel")
+}
 
 /// What the panel asks the app to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
+    /// The progress window's Pause: a live recording is stopped and saved
+    /// (`App::stop_by_hand`).
     Pause(u64),
     Resume(u64),
-    /// Stop the download (it stays in the list), as the progress window's Cancel does.
+    /// The progress window's Cancel (`App::cancel_download`).
     Cancel(u64),
     /// The main window, and the panel closed.
     OpenMain,
-    /// Closed: it lost the focus, or Escape.
+    /// Closed: its ×, Escape, or it lost the focus.
     Close,
 }
 
 /// The panel while it shows.
 pub struct Panel {
-    /// Where the icon was clicked (screen, points).
-    at: Pos2,
+    /// Where the icon was clicked (screen, points); None where the tray didn't say.
+    at: Option<Pos2>,
     /// Downloads paused from the panel: still listed, with Resume, while it shows.
     paused: Vec<u64>,
     /// Its window had the focus: losing it from then on closes the panel.
     focused: bool,
+    /// The passes it was drawn in, until it is on the screen ([`Panel::up`]).
+    drawn: u8,
 }
 
 /// One download as the panel lists it.
@@ -62,21 +83,32 @@ pub struct Row {
     pub id: u64,
     pub name: String,
     /// How far, 0 to 1; None without a size.
-    pub fraction: Option<f32>,
+    pub fraction: Option<f64>,
     /// "12.000 MB of 200.000 MB · 1.500 MB/sec · 2 min 6 sec" (as far as known).
     pub line: String,
-    /// Running (Pause), or paused from the panel (Resume).
-    pub running: bool,
+    /// What its Pause button says and whether it can be pressed (`progress::pause_button`).
+    pub status: Status,
+    pub live: Option<LiveState>,
+    /// A live stream: its button may read "Stop and save" (`progress::pause_labels`).
+    pub live_stream: bool,
 }
 
 impl Panel {
-    /// A panel for a click on the icon at `at` (screen, points).
-    pub fn new(at: Pos2) -> Panel {
+    /// A panel for a click on the icon at `at` (screen, points; None where the tray didn't say).
+    pub fn new(at: Option<Pos2>) -> Panel {
         Panel {
             at,
             paused: Vec::new(),
             focused: false,
+            drawn: 0,
         }
+    }
+
+    /// Whether its window is on the screen: from then on the main window's pass runs with every
+    /// frame of it (eframe draws a window's viewports while one of them shows), and needs no
+    /// asking (`App::tray`). On Windows it shows from the pass after the one that styled it.
+    pub fn up(&self) -> bool {
+        self.drawn >= if cfg!(windows) { 2 } else { 1 }
     }
 
     /// Paused from the panel: kept in its list, with Resume.
@@ -106,33 +138,34 @@ impl Panel {
     pub fn show(&mut self, ctx: &egui::Context, items: &[Item]) -> Vec<Event> {
         let rows = self.rows(items);
         let size = vec2(W, height(rows.len()));
-        let at = place(self.at, size, crate::scale::work_area(ctx, self.at));
-        let builder = crate::chrome::popup_viewport(TITLE)
+        // The screen the click was on; with no click's place, the main window's.
+        let near = self.at.unwrap_or_else(|| {
+            ctx.input(|i| i.viewport().outer_rect)
+                .map_or(Pos2::ZERO, |r| r.center())
+        });
+        let screen = ctx.input(|i| i.viewport().monitor_size);
+        let at = place(self.at, size, crate::scale::work_area(ctx, near), screen);
+        let name = title();
+        let builder = crate::chrome::popup_viewport(name)
             .with_position(at)
             .with_inner_size(size);
-        let vid = ViewportId::from_hash_of(TITLE);
+        let vid = viewport();
         let mut events = Vec::new();
         let mut styled = false;
         ctx.show_viewport_immediate(vid, builder, |ui, _| {
-            styled = crate::chrome::style_popup(TITLE, crate::chrome::PopupLook::Floating);
+            styled = crate::chrome::style_popup(name, crate::chrome::PopupLook::Floating);
             crate::dialogs::keyboard_to_click(ui.ctx());
             let o = ui.max_rect().min;
             let _surface = winui::Surface::enter(o.x, o.x + W);
             let p = ui.painter().clone();
-            let whole = Rect::from_min_size(o, size);
-            p.rect_filled(whole, 0.0, winui::BG());
-            p.rect_stroke(
-                whole,
-                0.0,
-                egui::Stroke::new(1.0, crate::theme::colors().drop_edge),
-                egui::StrokeKind::Inside,
-            );
+            crate::chrome::floating_frame(&p, Rect::from_min_size(o, size), false);
             draw(ui, &p, o, &rows, &mut events);
             // Escape, or the system asked it to close (Alt+F4, a test closing its windows).
             if winui::escape_pressed(ui) || ui.ctx().input(|i| i.viewport().close_requested()) {
                 events.push(Event::Close);
             }
         });
+        self.drawn = self.drawn.saturating_add(1);
         if styled {
             crate::chrome::show_popup(ctx, vid);
             ctx.send_viewport_cmd_to(vid, egui::ViewportCommand::Focus);
@@ -147,10 +180,8 @@ impl Panel {
             Some(false) if self.focused => events.push(Event::Close),
             _ => {}
         }
-        // Its figures move: drawn again twice a second while it shows.
-        // (It is drawn in the main window's pass, which a hidden or minimized main window runs
-        // only when asked: `App::tray_panel` asks.)
-        ctx.request_repaint_after(Duration::from_millis(500));
+        // Its figures move: drawn again on its beat while it shows.
+        ctx.request_repaint_after(BEAT);
         events
     }
 }
@@ -166,15 +197,38 @@ fn height(rows: usize) -> f32 {
 /// work area (`area`: the screen without the taskbar), so it sits beside the taskbar wherever
 /// that is (at the bottom, the top or a side). Where the work area isn't known (Linux, macOS),
 /// below the click when there is no room above it (macOS's menu bar, a panel at the top).
-/// Native Wayland places windows itself: there it goes where the compositor puts it.
-pub fn place(at: Pos2, size: Vec2, area: Option<Rect>) -> Pos2 {
-    let wanted = pos2(at.x - size.x / 2.0, at.y - size.y - GAP);
-    match area {
-        Some(a) => crate::scale::keep_inside(wanted, size, a),
-        None => pos2(
-            wanted.x.max(0.0),
-            if wanted.y < 0.0 { at.y + GAP } else { wanted.y },
-        ),
+///
+/// Where the tray gave no place for the click (a StatusNotifierItem host may send 0, 0): in the
+/// work area's corner at the bottom on the reading side's end, where Windows' own flyouts open
+/// for its taskbar; with no work area either, at the top on that side under a top bar (GNOME's
+/// tray and macOS's menu bar are at the top right), on the screen `screen` (its size). Native
+/// Wayland places windows itself: there it goes where the compositor puts it.
+pub fn place(at: Option<Pos2>, size: Vec2, area: Option<Rect>, screen: Option<Vec2>) -> Pos2 {
+    let end = |left: f32, right: f32| {
+        if crate::i18n::rtl() {
+            left + GAP
+        } else {
+            right - size.x - GAP
+        }
+    };
+    match (at, area) {
+        (Some(at), Some(a)) => {
+            crate::scale::keep_inside(pos2(at.x - size.x / 2.0, at.y - size.y - GAP), size, a)
+        }
+        (Some(at), None) => {
+            let wanted = pos2(at.x - size.x / 2.0, at.y - size.y - GAP);
+            pos2(
+                wanted.x.max(0.0),
+                if wanted.y < 0.0 { at.y + GAP } else { wanted.y },
+            )
+        }
+        (None, Some(a)) => pos2(end(a.min.x, a.max.x), a.max.y - size.y - GAP),
+        (None, None) => {
+            let right = screen
+                .filter(|s| s.x > size.x)
+                .map_or(size.x + GAP, |s| s.x);
+            pos2(end(0.0, right), TOP_BAR)
+        }
     }
     .round()
 }
@@ -189,39 +243,66 @@ fn row(item: &Item) -> Row {
         ),
         None => done,
     }];
-    let running = item.live.is_some();
-    if running {
+    if item.live.is_some() {
         parts.push(model::rate(item.rate()));
         let left = item.time_left();
         if !left.is_empty() {
             parts.push(left);
         }
     }
+    let live = item.live_state();
     Row {
         id: item.id,
         name: item.file_name.clone(),
-        fraction: item.fraction().map(|f| f as f32),
+        fraction: item.fraction(),
         line: parts.join(" · "),
-        running,
+        status: item.status,
+        live,
+        live_stream: live.is_some()
+            || matches!(item.video_helper(), Some(mdm_tools::streams::Helper::Live)),
     }
 }
 
-/// The panel's contents at `o`: its title, each download, and the button to the main window.
+/// "And 3 more": the downloads running past the five listed.
+fn more(n: usize) -> String {
+    // i18n: the notification-area icon's panel (#1365), under the downloads it lists: how many others are running; {n} a number
+    crate::i18n::tn(n as u64, "And {n} more", "And {n} more")
+}
+
+/// The panel's contents at `o`: its title and ×, each download, and the button to the main
+/// window.
 fn draw(ui: &mut egui::Ui, p: &egui::Painter, o: Pos2, rows: &[Row], events: &mut Vec<Event>) {
-    // i18n: the notification-area icon's panel (#1365): its title, over the downloads now running (also the tray menu's submenu)
-    let title = crate::i18n::t("Downloads in progress");
     winui::text_font(
         p,
         winui::tahoma_bold(),
         o.x + 12.0,
         o.y + 20.0,
-        title,
+        title(),
         winui::TEXT(),
     );
+    // Its ×: the way to close it that never needs the focus (see the module's comment).
+    let close = r(o, W - 8.0 - 24.0, 4.0, 24.0, 24.0);
+    if winui::close_button(ui, close, "tray-panel-close", "Close").clicked() {
+        events.push(Event::Close);
+    }
     let mut y = HEAD;
     winui::etched_h(p, o.x + 8.0, o.y + y - 2.0, W - 16.0);
+    // Pause and Cancel as wide as their labels in this language: Pause laid out for the widest
+    // of the labels it can show, so it keeps its size as its label changes.
+    let live_stream = rows.iter().any(|r| r.live_stream);
+    let pause_for = winui::widest_label(p, crate::progress::pause_labels(live_stream));
+    let buttons = winui::button_row(
+        p,
+        &[
+            (pause_for, W - 12.0 - 73.0 - 6.0 - 73.0, 73.0),
+            ("Cancel", W - 12.0 - 73.0, 73.0),
+        ],
+        6.0,
+        W / 2.0,
+        160.0,
+    );
     for row in rows.iter().take(MOST) {
-        draw_row(ui, p, o, y, row, events);
+        draw_row(ui, p, o, y, row, &buttons, events);
         y += ROW;
         winui::etched_h(p, o.x + 8.0, o.y + y - 2.0, W - 16.0);
     }
@@ -229,11 +310,7 @@ fn draw(ui: &mut egui::Ui, p: &egui::Painter, o: Pos2, rows: &[Row], events: &mu
         // i18n: the notification-area icon's panel (#1365) when no download is running
         Some(crate::i18n::t("No downloads are running").to_owned())
     } else if rows.len() > MOST {
-        Some(crate::i18n::fmt(
-            // i18n: the notification-area icon's panel (#1365), under the downloads it lists: how many others are running; {count} a number
-            crate::i18n::t("And {count} more"),
-            &[("count", &(rows.len() - MOST).to_string())],
-        ))
+        Some(more(rows.len() - MOST))
     } else {
         None
     };
@@ -264,17 +341,21 @@ fn draw(ui: &mut egui::Ui, p: &egui::Painter, o: Pos2, rows: &[Row], events: &mu
     }
 }
 
-/// One download's row, from `y` down: its name, its bar with Pause (or Resume) and Cancel beside
-/// it, and how far it is under them; read to screen readers as one line.
+/// One download's row, from `y` down: its name, its bar with the progress window's Pause (or
+/// Resume, Stop and save) and Cancel beside it at `buttons` (English x, width), and how far it is
+/// under them; read to screen readers as one line.
 fn draw_row(
     ui: &mut egui::Ui,
     p: &egui::Painter,
     o: Pos2,
     y: f32,
     row: &Row,
+    buttons: &[(f32, f32)],
     events: &mut Vec<Event>,
 ) {
-    let buttons_x = W - 12.0 - 2.0 * BUTTON_W - 6.0;
+    let [(pause_x, pause_w), (cancel_x, cancel_w)] = buttons[..] else {
+        return;
+    };
     winui::fit(
         ui,
         p,
@@ -285,21 +366,21 @@ fn draw_row(
         o.x + W - 12.0,
         ("tray-panel-name", row.id),
     );
-    let bar = r(o, 12.0, y + 24.0, buttons_x - 12.0 - 10.0, 14.0);
-    winui::meter(p, bar, row.fraction.unwrap_or(0.0));
-    let (toggle, event) = if row.running {
-        (crate::i18n::mark("Pause"), Event::Pause(row.id))
+    let bar = r(o, 12.0, y + 24.0, pause_x - 12.0 - 10.0, 14.0);
+    winui::meter(p, bar, row.fraction.unwrap_or(0.0) as f32);
+    let (label, kind) = crate::progress::pause_button(row.status, row.live);
+    let event = if row.status == Status::Downloading {
+        Event::Pause(row.id)
     } else {
-        (crate::i18n::mark("Resume"), Event::Resume(row.id))
+        Event::Resume(row.id)
     };
-    let cancel = crate::i18n::mark("Cancel");
     ui.push_id(("tray-panel-row", row.id), |ui| {
-        let at = r(o, buttons_x, y + 20.0, BUTTON_W, 21.0);
-        if winui::button(ui, at, toggle, ButtonKind::Normal, false, None).clicked() {
+        let at = r(o, pause_x, y + 20.0, pause_w, 21.0);
+        if winui::button(ui, at, label, kind, false, None).clicked() {
             events.push(event);
         }
-        let at = r(o, buttons_x + BUTTON_W + 6.0, y + 20.0, BUTTON_W, 21.0);
-        if winui::button(ui, at, cancel, ButtonKind::Normal, false, None).clicked() {
+        let at = r(o, cancel_x, y + 20.0, cancel_w, 21.0);
+        if winui::button(ui, at, "Cancel", ButtonKind::Normal, false, None).clicked() {
             events.push(Event::Cancel(row.id));
         }
     });
@@ -322,7 +403,7 @@ fn draw_row(
     );
     let percent = row
         .fraction
-        .map(|f| format!(", {}%", (f * 100.0).floor() as u32))
+        .map(|f| format!(", {}", crate::i18n::percent(f, 0)))
         .unwrap_or_default();
     winui::expose(
         &resp,
@@ -342,22 +423,44 @@ mod tests {
     #[test]
     fn the_panel_sits_beside_the_taskbar_wherever_it_is() {
         let size = vec2(380.0, 200.0);
+        let at = |x, y| Some(pos2(x, y));
         // A 1920 × 1080 screen, the taskbar at the bottom (40 tall): the icon near the right.
         let bottom = Rect::from_min_max(pos2(0.0, 0.0), pos2(1920.0, 1040.0));
-        let p = place(pos2(1800.0, 1060.0), size, Some(bottom));
+        let p = place(at(1800.0, 1060.0), size, Some(bottom), None);
         assert_eq!(p, pos2(1920.0 - 380.0, 1040.0 - 200.0));
         // In the middle of the taskbar: centred over the click, above the taskbar.
-        let p = place(pos2(960.0, 1060.0), size, Some(bottom));
+        let p = place(at(960.0, 1060.0), size, Some(bottom), None);
         assert_eq!(p, pos2(770.0, 840.0));
         // The taskbar at the top: under it.
         let top = Rect::from_min_max(pos2(0.0, 40.0), pos2(1920.0, 1080.0));
-        assert_eq!(place(pos2(1800.0, 20.0), size, Some(top)).y, 40.0);
+        assert_eq!(place(at(1800.0, 20.0), size, Some(top), None).y, 40.0);
         // At the left: beside it.
         let left = Rect::from_min_max(pos2(60.0, 0.0), pos2(1920.0, 1080.0));
-        assert_eq!(place(pos2(30.0, 1000.0), size, Some(left)).x, 60.0);
+        assert_eq!(place(at(30.0, 1000.0), size, Some(left), None).x, 60.0);
         // No work area (macOS's menu bar): under the click when there is no room above.
-        assert_eq!(place(pos2(1500.0, 12.0), size, None), pos2(1310.0, 20.0));
-        assert_eq!(place(pos2(100.0, 900.0), size, None), pos2(0.0, 692.0));
+        assert_eq!(
+            place(at(1500.0, 12.0), size, None, None),
+            pos2(1310.0, 20.0)
+        );
+        assert_eq!(place(at(100.0, 900.0), size, None, None), pos2(0.0, 692.0));
+    }
+
+    /// No place for the click (a tray that sent 0, 0): never the screen's top-left corner, but
+    /// the work area's bottom corner, or with none the top corner under a top bar.
+    #[test]
+    fn with_no_place_for_the_click_it_goes_to_the_trays_corner() {
+        let size = vec2(380.0, 200.0);
+        let bottom = Rect::from_min_max(pos2(0.0, 0.0), pos2(1920.0, 1040.0));
+        assert_eq!(
+            place(None, size, Some(bottom), None),
+            pos2(1920.0 - 380.0 - GAP, 1040.0 - 200.0 - GAP)
+        );
+        assert_eq!(
+            place(None, size, None, Some(vec2(2560.0, 1440.0))),
+            pos2(2560.0 - 380.0 - GAP, TOP_BAR)
+        );
+        // Not even the screen's size: still on the screen.
+        assert_eq!(place(None, size, None, None), pos2(0.0, TOP_BAR));
     }
 
     /// Room for the downloads listed (five at most), and a line when none runs or more do.
@@ -367,5 +470,64 @@ mod tests {
         assert_eq!(height(1), HEAD + ROW + FOOT);
         assert_eq!(height(5), HEAD + 5.0 * ROW + FOOT);
         assert_eq!(height(9), HEAD + 5.0 * ROW + NOTE + FOOT);
+    }
+
+    fn item(id: u64, size: Option<u64>, downloaded: u64, status: Status) -> Item {
+        let mut i = Item::new(
+            id,
+            "https://x.example/big.iso".parse().unwrap(),
+            std::path::PathBuf::from("dl").join("big.iso"),
+            crate::model::Category::General,
+        );
+        (i.size, i.downloaded, i.status) = (size, downloaded, status);
+        i
+    }
+
+    /// A row says how much of how much has come, or only how much without a size (no share of
+    /// it, no bar's fill); a stopped one has no speed or time left, and its button resumes.
+    #[test]
+    fn a_row_says_what_is_known_of_its_download() {
+        let known = row(&item(
+            1,
+            Some(4 * 1024 * 1024),
+            1024 * 1024,
+            Status::Stopped,
+        ));
+        assert_eq!(known.fraction, Some(0.25));
+        assert_eq!(known.line, "1.000 MB of 4.000 MB");
+        assert_eq!(known.status, Status::Stopped);
+        assert!(known.live.is_none() && !known.live_stream);
+        let unknown = row(&item(2, None, 3 * 1024, Status::Stopped));
+        assert_eq!(unknown.fraction, None);
+        assert_eq!(unknown.line, "3.000 KB");
+        assert_eq!(
+            crate::progress::pause_button(known.status, known.live).0,
+            "Resume"
+        );
+    }
+
+    /// Paused from the panel, a download stays listed (with Resume) until it is resumed,
+    /// cancelled or finished; running ones are listed without asking.
+    #[test]
+    fn a_download_paused_from_it_stays_listed() {
+        let mut panel = Panel::new(None);
+        let items = vec![
+            item(1, Some(100), 10, Status::Stopped),
+            item(2, Some(100), 100, Status::Complete),
+        ];
+        assert!(panel.rows(&items).is_empty());
+        panel.paused(1);
+        panel.paused(2);
+        let ids: Vec<u64> = panel.rows(&items).iter().map(|r| r.id).collect();
+        assert_eq!(ids, [1], "a finished one isn't listed");
+        panel.forget(1);
+        assert!(panel.rows(&items).is_empty());
+    }
+
+    /// The count under the list in every plural form a language has (Arabic has six).
+    #[test]
+    fn the_count_of_the_others_is_a_plural() {
+        assert_eq!(more(1), "And 1 more");
+        assert_eq!(more(12), "And 12 more");
     }
 }
