@@ -123,15 +123,18 @@ impl Panel {
         self.paused.retain(|p| *p != id);
     }
 
-    /// What it lists: every running download, then those paused from it (not finished since).
+    /// What it lists, in the list's order: every running download, and those paused from it
+    /// (not finished since). In that order a paused row stays where it was, under the pointer
+    /// that paused it, rather than going after the running ones (a click on Resume then landed
+    /// on another download's Pause).
     pub fn rows(&self, items: &[Item]) -> Vec<Row> {
-        let running = items.iter().filter(|i| i.live.is_some());
-        let paused = self.paused.iter().filter_map(|id| {
-            items
-                .iter()
-                .find(|i| i.id == *id && i.live.is_none() && i.status != Status::Complete)
-        });
-        running.chain(paused).map(row).collect()
+        items
+            .iter()
+            .filter(|i| {
+                i.live.is_some() || (self.paused.contains(&i.id) && i.status != Status::Complete)
+            })
+            .map(row)
+            .collect()
     }
 
     /// Show the panel; what was asked in it this frame.
@@ -522,6 +525,15 @@ mod tests {
         assert_eq!(ids, [1], "a finished one isn't listed");
         panel.forget(1);
         assert!(panel.rows(&items).is_empty());
+        // In the list's order, whichever was paused first: a row doesn't move under the pointer.
+        let items = vec![
+            item(1, Some(100), 10, Status::Stopped),
+            item(2, Some(100), 20, Status::Stopped),
+        ];
+        panel.paused(2);
+        panel.paused(1);
+        let ids: Vec<u64> = panel.rows(&items).iter().map(|r| r.id).collect();
+        assert_eq!(ids, [1, 2]);
     }
 
     /// The count under the list in every plural form a language has (Arabic has six).
