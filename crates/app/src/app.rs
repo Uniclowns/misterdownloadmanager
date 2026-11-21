@@ -4981,7 +4981,7 @@ impl App {
         // runs only when asked (#1365): asked until the panel is on the screen. From then on
         // eframe runs that pass with each of the panel's frames (its beat, an input on it), as it
         // does for any window of ours that shows, so nothing is asked every frame.
-        if self.tray_panel.as_ref().is_some_and(|p| !p.up()) {
+        if self.tray_panel.as_ref().is_some_and(|p| !p.up(ctx)) {
             ctx.request_ui_pass(egui::ViewportId::ROOT);
         }
         if let Some(t) = &self.tray {

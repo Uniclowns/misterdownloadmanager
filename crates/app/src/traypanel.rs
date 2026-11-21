@@ -73,8 +73,6 @@ pub struct Panel {
     paused: Vec<u64>,
     /// Its window had the focus: losing it from then on closes the panel.
     focused: bool,
-    /// The passes it was drawn in, until it is on the screen ([`Panel::up`]).
-    drawn: u8,
 }
 
 /// One download as the panel lists it.
@@ -100,15 +98,22 @@ impl Panel {
             at,
             paused: Vec::new(),
             focused: false,
-            drawn: 0,
         }
     }
 
-    /// Whether its window is on the screen: from then on the main window's pass runs with every
-    /// frame of it (eframe draws a window's viewports while one of them shows), and needs no
-    /// asking (`App::tray`). On Windows it shows from the pass after the one that styled it.
-    pub fn up(&self) -> bool {
-        self.drawn >= if cfg!(windows) { 2 } else { 1 }
+    /// Whether its window is on the screen, as the window says (its viewport's `visible`): from
+    /// then on the main window's pass runs with every frame of it (eframe draws a window's
+    /// viewports while one of them shows), and needs no asking (`App::tray`). Not a count of
+    /// passes: on Windows it is made hidden and shown once styled, which a slow machine may take
+    /// longer to do, and with the main window hidden nothing else would run the pass meanwhile.
+    pub fn up(&self, ctx: &egui::Context) -> bool {
+        ctx.input(|i| {
+            i.raw
+                .viewports
+                .get(&viewport())
+                .and_then(|v| v.visible())
+                .unwrap_or(false)
+        })
     }
 
     /// Paused from the panel: kept in its list, with Resume.
@@ -168,7 +173,6 @@ impl Panel {
                 events.push(Event::Close);
             }
         });
-        self.drawn = self.drawn.saturating_add(1);
         if styled {
             crate::chrome::show_popup(ctx, vid);
             ctx.send_viewport_cmd_to(vid, egui::ViewportCommand::Focus);

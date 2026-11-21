@@ -308,10 +308,11 @@ pub struct Settings {
     /// closing quits). On by default, for existing lists too, in every copy. Only where a tray
     /// shows MDM's icon.
     pub close_to_tray: bool,
-    /// The tray icon's menu → "Show downloads on click" (#1365): a click on the icon shows the
-    /// downloads panel (traypanel.rs), a double click the window; unticked, the click shows the
-    /// window again or hides it there, as before. Ticked for a new list; a list saved before it
-    /// reads unticked (the field's own default), so nobody's click changes under them.
+    /// General: "Show downloads when the notification area icon is clicked" (#1365): a click on
+    /// the icon shows the downloads panel (traypanel.rs), a double click the window; unticked,
+    /// the click shows the window again or hides it there, as before. Ticked for a new list; a
+    /// list saved before it reads unticked (the field's own default), so nobody's click changes
+    /// under them. Only where a tray shows MDM's icon.
     #[serde(default)]
     pub tray_panel: bool,
     /// General: a private (incognito) window's downloads are written to the saved list like any

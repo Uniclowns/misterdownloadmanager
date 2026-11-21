@@ -565,7 +565,6 @@ mod session_end_tests {
     }
 }
 
-/// This process's top-level window with exactly `title`; the main window by its handle.
 /// The system's double-click time (Control Panel → Mouse): a tray icon's double click is two
 /// clicks within it (#1365).
 pub fn double_click_time() -> std::time::Duration {
@@ -574,6 +573,7 @@ pub fn double_click_time() -> std::time::Duration {
     std::time::Duration::from_millis(u64::from(unsafe { GetDoubleClickTime() }))
 }
 
+/// This process's top-level window with exactly `title`; the main window by its handle.
 pub(crate) fn find_own_window(title: &str) -> Option<HWND> {
     let known = MAIN_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
     own_window(
